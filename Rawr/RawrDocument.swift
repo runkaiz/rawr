@@ -70,19 +70,13 @@ struct RawrDocument: FileDocument {
 
                 // Sync sourceFile URL to Image Input node's imageURL
                 if let sourceFileURL = decodedFlow.sourceFile?.originalPath {
-                    print("📄 RawrDocument: Found sourceFile path: \(sourceFileURL)")
                     let url = URL(fileURLWithPath: sourceFileURL)
                     var updatedNodes = decodedFlow.nodeGraph.nodes
                     if let imageInputIndex = updatedNodes.firstIndex(where: { $0.type == .imageInput }) {
-                        print("📄 RawrDocument: Setting imageURL on Image Input node to: \(url.path)")
                         updatedNodes[imageInputIndex].imageURL = url
-                    } else {
-                        print("📄 RawrDocument: No Image Input node found in document")
                     }
                     let updatedNodeGraph = NodeGraph(nodes: updatedNodes, connections: decodedFlow.nodeGraph.connections)
                     decodedFlow = FlowDocument(version: decodedFlow.version, sourceFile: decodedFlow.sourceFile, metadata: decodedFlow.metadata, nodeGraph: updatedNodeGraph)
-                } else {
-                    print("📄 RawrDocument: No sourceFile found in document")
                 }
 
                 self.flowDocument = decodedFlow

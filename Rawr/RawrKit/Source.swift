@@ -34,9 +34,43 @@ public class RawrKit: ObservableObject {
 
     public func log(_ message: String, level: LogLevel = .info) {
         let entry = LogEntry(message: message, level: level, timestamp: Date())
-        print("🔧 RawrKit [\(level.rawValue)]: \(message)")
         DispatchQueue.main.async {
             self.logs.append(entry)
+        }
+    }
+
+    /// Creates a security-scoped bookmark for the given URL
+    /// Call this after selecting a file through a file picker
+    /// This is a static utility method that can be called without a RawrKit instance
+    public static func createSecurityBookmark(for url: URL) -> Data? {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        do {
+            let bookmarkData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+            return bookmarkData
+        } catch {
+            return nil
+        }
+    }
+
+    /// Resolves a security-scoped bookmark to a URL with logging
+    /// Returns nil if the bookmark cannot be resolved
+    public func resolveBookmark(_ bookmarkData: Data) -> URL? {
+        do {
+            var isStale = false
+            let resolvedURL = try URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale)
+            if isStale {
+                log("Security bookmark is stale, file may have moved", level: .warning)
+            }
+            return resolvedURL
+        } catch {
+            log("Failed to resolve bookmark: \(error.localizedDescription)", level: .error)
+            return nil
         }
     }
 
@@ -69,7 +103,6 @@ public class RawrKit: ObservableObject {
     }
 
     public func loadRawFile(from url: URL) async -> Bool {
-        print("🔧 RawrKit.loadRawFile called with URL: \(url.path)")
         await MainActor.run {
             isProcessing = true
             performance.startTime = Date()
@@ -161,7 +194,6 @@ public class RawrKit: ObservableObject {
             await MainActor.run {
                 self.currentImage = cgImage
                 self.previewImage = self.createPreview(from: cgImage)
-                print("🔧 RawrKit: Set previewImage to \(cgImage.width)x\(cgImage.height)")
             }
 
             log("Successfully loaded RAW file: \(cgImage.width)x\(cgImage.height) pixels")

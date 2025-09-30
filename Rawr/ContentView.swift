@@ -130,7 +130,6 @@ struct PreviewSectionView: View {
         }
         .background(Color(NSColor.textBackgroundColor))
         .onAppear {
-            print("🎬 PreviewSectionView.onAppear called")
             loadImageFromNode()
         }
         .task(id: imageInputNode?.imageURL) {
@@ -146,17 +145,8 @@ struct PreviewSectionView: View {
         // Try to resolve from bookmark first, fall back to URL
         let urlToLoad: URL?
         if let bookmarkData = node.imageBookmark {
-            do {
-                var isStale = false
-                let resolvedURL = try URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale)
-                if isStale {
-                    rawrKit.log("Security bookmark is stale, file may have moved", level: .warning)
-                }
-                urlToLoad = resolvedURL
-            } catch {
-                rawrKit.log("Failed to resolve security bookmark: \(error.localizedDescription)", level: .warning)
-                urlToLoad = nil
-            }
+            // Use RawrKit to resolve the bookmark (with logging)
+            urlToLoad = rawrKit.resolveBookmark(bookmarkData)
         } else {
             // No bookmark - this is likely an old document or a newly selected file in the current session
             // For newly selected files, the fileImporter gives us temporary access
