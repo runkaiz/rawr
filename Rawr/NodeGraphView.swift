@@ -7,6 +7,7 @@ struct NodeGraphView: View {
     @State private var connectingFrom: (nodeId: UUID, output: String)?
     @State private var currentMousePosition: CGPoint = .zero
     @State private var isHoveringInput: UUID?
+    @State private var hoveredConnectionId: UUID?
     @State private var inputDotPositions: [UUID: [String: CGPoint]] = [:]
     @State private var outputDotPositions: [UUID: [String: CGPoint]] = [:]
 
@@ -46,16 +47,28 @@ struct NodeGraphView: View {
                 ForEach(connections) { connection in
                     if let fromPos = outputDotPositions[connection.fromNodeId]?[connection.fromOutput],
                        let toPos = inputDotPositions[connection.toNodeId]?[connection.toInput] {
-                        ConnectionLine(from: fromPos, to: toPos, isPreview: false, onTap: {
-                            connections.removeAll { $0.id == connection.id }
-                        })
+                        ConnectionLine(
+                            from: fromPos,
+                            to: toPos,
+                            isPreview: false,
+                            isHovering: hoveredConnectionId == connection.id,
+                            onTap: {
+                                connections.removeAll { $0.id == connection.id }
+                            }
+                        )
                     }
                 }
 
                 // Preview connection line while connecting
                 if let from = connectingFrom,
                    let fromPos = outputDotPositions[from.nodeId]?[from.output] {
-                    ConnectionLine(from: fromPos, to: currentMousePosition, isPreview: true, onTap: nil)
+                    ConnectionLine(
+                        from: fromPos,
+                        to: currentMousePosition,
+                        isPreview: true,
+                        isHovering: false,
+                        onTap: nil
+                    )
                 }
 
                 // Nodes
@@ -68,8 +81,10 @@ struct NodeGraphView: View {
                 switch phase {
                 case .active(let location):
                     currentMousePosition = location
+                    // Check which connection is being hovered
+                    updateHoveredConnection(at: location)
                 case .ended:
-                    break
+                    hoveredConnectionId = nil
                 }
             }
             .onPreferenceChange(InputDotPositionKey.self) { positions in
@@ -94,6 +109,52 @@ struct NodeGraphView: View {
                     }
             )
         }
+    }
+
+    private func updateHoveredConnection(at location: CGPoint) {
+        // Check all connections to find which one is being hovered
+        for connection in connections {
+            guard let fromPos = outputDotPositions[connection.fromNodeId]?[connection.fromOutput],
+                  let toPos = inputDotPositions[connection.toNodeId]?[connection.toInput] else {
+                continue
+            }
+
+            if isPointNearCurve(location, from: fromPos, to: toPos) {
+                hoveredConnectionId = connection.id
+                return
+            }
+        }
+        hoveredConnectionId = nil
+    }
+
+    private func isPointNearCurve(_ point: CGPoint, from: CGPoint, to: CGPoint, threshold: CGFloat = 10) -> Bool {
+        let samples = 50
+        for i in 0...samples {
+            let t = CGFloat(i) / CGFloat(samples)
+            let curvePoint = pointOnCurve(t: t, from: from, to: to)
+            let distance = hypot(point.x - curvePoint.x, point.y - curvePoint.y)
+            if distance <= threshold {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func pointOnCurve(t: CGFloat, from: CGPoint, to: CGPoint) -> CGPoint {
+        let controlPoint1 = CGPoint(x: from.x + (to.x - from.x) / 2, y: from.y)
+        let controlPoint2 = CGPoint(x: from.x + (to.x - from.x) / 2, y: to.y)
+
+        let oneMinusT = 1 - t
+        let x = pow(oneMinusT, 3) * from.x +
+                3 * pow(oneMinusT, 2) * t * controlPoint1.x +
+                3 * oneMinusT * pow(t, 2) * controlPoint2.x +
+                pow(t, 3) * to.x
+        let y = pow(oneMinusT, 3) * from.y +
+                3 * pow(oneMinusT, 2) * t * controlPoint1.y +
+                3 * oneMinusT * pow(t, 2) * controlPoint2.y +
+                pow(t, 3) * to.y
+
+        return CGPoint(x: x, y: y)
     }
 
     @ViewBuilder
@@ -161,9 +222,8 @@ struct ConnectionLine: View {
     let from: CGPoint
     let to: CGPoint
     let isPreview: Bool
+    let isHovering: Bool
     var onTap: (() -> Void)?
-    @State private var isHovering = false
-    @State private var mouseLocation: CGPoint = .zero
 
     private func curvePath(in size: CGSize) -> Path {
         Path { path in
@@ -172,38 +232,6 @@ struct ConnectionLine: View {
             let controlPoint2 = CGPoint(x: from.x + (to.x - from.x) / 2, y: to.y)
             path.addCurve(to: to, control1: controlPoint1, control2: controlPoint2)
         }
-    }
-
-    private func isPointNearCurve(_ point: CGPoint, threshold: CGFloat = 10) -> Bool {
-        // Sample points along the curve to check distance
-        let samples = 50
-        for i in 0...samples {
-            let t = CGFloat(i) / CGFloat(samples)
-            let curvePoint = pointOnCurve(t: t)
-            let distance = hypot(point.x - curvePoint.x, point.y - curvePoint.y)
-            if distance <= threshold {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func pointOnCurve(t: CGFloat) -> CGPoint {
-        let controlPoint1 = CGPoint(x: from.x + (to.x - from.x) / 2, y: from.y)
-        let controlPoint2 = CGPoint(x: from.x + (to.x - from.x) / 2, y: to.y)
-
-        // Cubic Bezier formula
-        let oneMinusT = 1 - t
-        let x = pow(oneMinusT, 3) * from.x +
-                3 * pow(oneMinusT, 2) * t * controlPoint1.x +
-                3 * oneMinusT * pow(t, 2) * controlPoint2.x +
-                pow(t, 3) * to.x
-        let y = pow(oneMinusT, 3) * from.y +
-                3 * pow(oneMinusT, 2) * t * controlPoint1.y +
-                3 * oneMinusT * pow(t, 2) * controlPoint2.y +
-                pow(t, 3) * to.y
-
-        return CGPoint(x: x, y: y)
     }
 
     var body: some View {
@@ -235,17 +263,6 @@ struct ConnectionLine: View {
                     .animation(.easeInOut(duration: 0.15), value: from)
                     .animation(.easeInOut(duration: 0.15), value: to)
                     .animation(.easeInOut(duration: 0.1), value: isHovering)
-            }
-            .onContinuousHover { phase in
-                if !isPreview {
-                    switch phase {
-                    case .active(let location):
-                        mouseLocation = location
-                        isHovering = isPointNearCurve(location)
-                    case .ended:
-                        isHovering = false
-                    }
-                }
             }
         }
     }
