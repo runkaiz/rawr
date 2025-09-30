@@ -42,7 +42,6 @@ public struct SourceFileReference: Codable {
     public let originalPath: String
     public let fileName: String
     public let fileSize: Int64?
-    public let checksum: String?
     public let lastModified: Date?
 
     public init(url: URL) {
@@ -57,8 +56,6 @@ public struct SourceFileReference: Codable {
             self.fileSize = nil
             self.lastModified = nil
         }
-
-        self.checksum = nil
     }
 }
 

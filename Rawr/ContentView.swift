@@ -94,7 +94,6 @@ struct EditorView: View {
 struct PreviewSectionView: View {
     @Binding var document: RawrDocument
     @StateObject private var rawrKit = RawrKit()
-    @State private var isExporting = false
     @State private var showExportDialog = false
     @State private var exportFormat: ExportFormat = .tiff
 
@@ -300,16 +299,12 @@ struct PreviewSectionView: View {
             return
         }
 
-        isExporting = true
         Task {
             let success = await rawrKit.exportImage(nodeGraph, to: url, format: exportFormat)
-            await MainActor.run {
-                isExporting = false
-                if success {
-                    rawrKit.log("Export completed successfully", level: .info)
-                } else {
-                    rawrKit.log("Export failed", level: .error)
-                }
+            if success {
+                rawrKit.log("Export completed successfully", level: .info)
+            } else {
+                rawrKit.log("Export failed", level: .error)
             }
         }
     }

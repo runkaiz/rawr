@@ -6,11 +6,8 @@ import Metal
 /// Applies gamma correction using Metal compute shader
 public class GammaProcessor: MetalNodeProcessor {
     private let pipelineState: MTLComputePipelineState
-    private weak var context: ProcessingContext?
 
     public init(context: ProcessingContext) {
-        self.context = context
-
         // Load the Metal shader
         guard let library = context.device.makeDefaultLibrary(),
               let kernelFunction = library.makeFunction(name: "applyGamma"),
