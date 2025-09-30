@@ -14,15 +14,16 @@ public class GammaProcessor: MetalNodeProcessor {
         // Load the Metal shader
         guard let library = context.device.makeDefaultLibrary(),
               let kernelFunction = library.makeFunction(name: "applyGamma"),
-              let pipeline = try? context.device.makeComputePipelineState(function: kernelFunction) else {
+              let pipeline = try? context.device.makeComputePipelineState(function: kernelFunction)
+        else {
             fatalError("Failed to create gamma compute pipeline")
         }
 
-        self.pipelineState = pipeline
+        pipelineState = pipeline
         super.init(nodeType: .gamma)
     }
 
-    override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
+    override public func process(inputs: [String: ImageData], node _: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
         guard let inputData = inputs["Input"] else {
             context.log("No input image for gamma correction", level: .error)
             return nil
@@ -49,7 +50,8 @@ public class GammaProcessor: MetalNodeProcessor {
 
         // Execute Metal compute shader
         guard let commandBuffer = context.commandQueue.makeCommandBuffer(),
-              let computeEncoder = commandBuffer.makeComputeCommandEncoder() else {
+              let computeEncoder = commandBuffer.makeComputeCommandEncoder()
+        else {
             context.log("Failed to create Metal command buffer/encoder", level: .error)
             return nil
         }
@@ -72,7 +74,7 @@ public class GammaProcessor: MetalNodeProcessor {
         computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
         computeEncoder.endEncoding()
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
 
         // Convert output texture to CGImage
         guard let cgImage = createCGImage(from: outputTexture) else {

@@ -65,7 +65,7 @@ public class InversionProcessor: MetalNodeProcessor {
         computeEncoder.dispatchThreadgroups(threadGroups, threadsPerThreadgroup: threadGroupSize)
         computeEncoder.endEncoding()
         commandBuffer.commit()
-        commandBuffer.waitUntilCompleted()
+        await commandBuffer.completed()
 
         // Convert output texture to CGImage
         guard let cgImage = createCGImage(from: outputTexture) else {

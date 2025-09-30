@@ -9,7 +9,8 @@ public actor GraphExecutor {
 
     public init(context: ProcessingContext) {
         self.context = context
-        registerDefaultProcessors()
+        self.processors = GraphExecutor.defaultProcessors(context: context)
+        context.log("Registered default processors (\(processors.count))")
     }
 
     /// Register a processor for a specific node type
@@ -18,12 +19,19 @@ public actor GraphExecutor {
         context.log("Registered processor for node type: \(processor.nodeType.rawValue)")
     }
 
-    private func registerDefaultProcessors() {
-        registerProcessor(ImageInputProcessor())
-        registerProcessor(InversionProcessor(context: context))
-        registerProcessor(ExposureProcessor(context: context))
-        registerProcessor(GammaProcessor(context: context))
-        registerProcessor(PreviewProcessor())
+    private static func defaultProcessors(context: ProcessingContext) -> [NodeType: NodeProcessor] {
+        var dict: [NodeType: NodeProcessor] = [:]
+        let defaults: [NodeProcessor] = [
+            ImageInputProcessor(),
+            InversionProcessor(context: context),
+            ExposureProcessor(context: context),
+            GammaProcessor(context: context),
+            PreviewProcessor()
+        ]
+        for processor in defaults {
+            dict[processor.nodeType] = processor
+        }
+        return dict
     }
 
     /// Execute the entire node graph
