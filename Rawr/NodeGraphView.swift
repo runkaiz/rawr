@@ -38,14 +38,6 @@ struct NodeGraphView: View {
                             connectingFrom = nil
                         }
                     }
-                    .onKeyPress(.escape) {
-                        // Cancel connection on Escape key
-                        if connectingFrom != nil {
-                            connectingFrom = nil
-                            return .handled
-                        }
-                        return .ignored
-                    }
 
                 // Dotted grid
                 GridPattern(size: geometry.size)
@@ -83,6 +75,15 @@ struct NodeGraphView: View {
             }
             .onPreferenceChange(OutputDotPositionKey.self) { positions in
                 outputDotPositions = positions
+            }
+            .focusable()
+            .onKeyPress(.escape) {
+                // Cancel connection on Escape key
+                if connectingFrom != nil {
+                    connectingFrom = nil
+                    return .handled
+                }
+                return .ignored
             }
         }
     }
