@@ -363,8 +363,8 @@ public class RawrKit: ObservableObject {
     }
 
     /// Clear the graph execution cache (call when graph structure changes)
-    public func clearGraphCache() {
-        graphExecutor?.clearCache()
+    public func clearGraphCache() async {
+        await graphExecutor?.clearCache()
         log("Graph cache cleared")
     }
 

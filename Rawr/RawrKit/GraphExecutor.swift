@@ -2,7 +2,7 @@ import Foundation
 import Metal
 
 /// Executes a node graph, handling dependency resolution and data flow
-public class GraphExecutor {
+public actor GraphExecutor {
     private let context: ProcessingContext
     private var processors: [NodeType: NodeProcessor] = [:]
     private var executionCache: [UUID: [String: ImageData]] = [:]
@@ -21,6 +21,8 @@ public class GraphExecutor {
     private func registerDefaultProcessors() {
         registerProcessor(ImageInputProcessor())
         registerProcessor(InversionProcessor(context: context))
+        registerProcessor(ExposureProcessor(context: context))
+        registerProcessor(GammaProcessor(context: context))
         registerProcessor(PreviewProcessor())
     }
 

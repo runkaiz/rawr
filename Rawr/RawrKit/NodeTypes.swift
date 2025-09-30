@@ -4,12 +4,16 @@ import SwiftUI
 public enum NodeType: String, Codable, CaseIterable, Hashable {
     case imageInput = "Image Input"
     case inversion = "Inversion"
+    case exposure = "Exposure"
+    case gamma = "Gamma"
     case preview = "Preview"
 
     public var icon: String {
         switch self {
         case .imageInput: return "photo"
         case .inversion: return "circle.lefthalf.filled"
+        case .exposure: return "sun.max"
+        case .gamma: return "slider.horizontal.3"
         case .preview: return "eye"
         }
     }
@@ -18,7 +22,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         switch self {
         case .imageInput: return 1
         case .preview: return 1
-        case .inversion: return nil
+        case .inversion, .exposure, .gamma: return nil
         }
     }
 }
@@ -40,7 +44,7 @@ public struct NodeData: Identifiable, Codable {
         switch type {
         case .imageInput:
             self.outputs = ["Image"]
-        case .inversion:
+        case .inversion, .exposure, .gamma:
             self.inputs = ["Input"]
             self.outputs = ["Output"]
         case .preview:
