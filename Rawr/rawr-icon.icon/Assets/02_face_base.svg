@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Single foreground layer: base face silhouette (ears + head) -->
+  <g id="face-base" fill="#F4F6FA">
+    <!-- ears -->
+    <circle cx="342" cy="292" r="120"/>
+    <circle cx="682" cy="292" r="120"/>
+    <!-- head -->
+    <circle cx="512" cy="552" r="280"/>
+  </g>
+</svg>

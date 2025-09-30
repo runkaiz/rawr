@@ -1,0 +1,50 @@
+{
+  "fill" : {
+    "automatic-gradient" : "display-p3:0.00000,0.00000,0.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "fill" : "automatic",
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "04_node_motif.svg",
+          "name" : "04_node_motif",
+          "position" : {
+            "scale" : 2,
+            "translation-in-points" : [
+              -341.5390625,
+              -248.28125
+            ]
+          }
+        },
+        {
+          "image-name" : "03_face_features.svg",
+          "name" : "03_face_features"
+        },
+        {
+          "image-name" : "05_foreground_monochrome.svg",
+          "name" : "05_foreground_monochrome"
+        },
+        {
+          "image-name" : "02_face_base.svg",
+          "name" : "02_face_base"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}

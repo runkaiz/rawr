@@ -15,7 +15,10 @@ public class RawrKit: ObservableObject {
     private let device: MTLDevice?
     private let ciContext: CIContext
     private let commandQueue: MTLCommandQueue?
-    private let maxPreviewDimension: CGFloat = 2048
+
+    // Preview resolution settings - all processing uses preview resolution for real-time editing
+    public var maxPreviewDimension: CGFloat = 1920 // Default to 1920px for real-time editing
+    private var isFullResolutionMode = false // Flag for export mode
 
     // Graph execution
     private var graphExecutor: GraphExecutor?
@@ -401,6 +404,7 @@ public class RawrKit: ObservableObject {
     // MARK: - Source Image Cache Management
 
     /// Get the cached source image for a given URL, or load it if not cached
+    /// Automatically scales down to preview resolution unless in full resolution mode
     internal func getCachedSourceImage(for url: URL) async -> CGImage? {
         // Check if we already have this image cached
         if let cachedURL = cachedSourceURL, cachedURL == url, let cached = cachedSourceImage {
@@ -428,20 +432,54 @@ public class RawrKit: ObservableObject {
                 kCGImageSourceShouldCache: false
             ]
 
-            guard let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
+            guard let fullResImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
                 return nil
+            }
+
+            // Scale to preview resolution unless in full resolution mode
+            let cgImage: CGImage
+            if isFullResolutionMode {
+                cgImage = fullResImage
+                log("Loaded full resolution image: \(cgImage.width)x\(cgImage.height)")
+            } else {
+                cgImage = scaleToPreviewResolution(fullResImage)
+                log("Loaded preview resolution image: \(cgImage.width)x\(cgImage.height) (scaled from \(fullResImage.width)x\(fullResImage.height))")
             }
 
             // Update cache
             cachedSourceImage = cgImage
             cachedSourceURL = url
-            log("Cached source image: \(cgImage.width)x\(cgImage.height)")
 
             return cgImage
         } catch {
             log("Failed to load source image: \(error.localizedDescription)", level: .error)
             return nil
         }
+    }
+
+    /// Scale an image to preview resolution
+    private func scaleToPreviewResolution(_ image: CGImage) -> CGImage {
+        let width = CGFloat(image.width)
+        let height = CGFloat(image.height)
+
+        // Only scale if image exceeds max dimension
+        guard max(width, height) > maxPreviewDimension else {
+            return image
+        }
+
+        let scale = maxPreviewDimension / max(width, height)
+        let ciImage = CIImage(cgImage: image)
+        let filter = CIFilter(name: "CILanczosScaleTransform")!
+        filter.setValue(ciImage, forKey: kCIInputImageKey)
+        filter.setValue(scale, forKey: kCIInputScaleKey)
+        filter.setValue(1.0, forKey: kCIInputAspectRatioKey)
+
+        guard let outputImage = filter.outputImage,
+              let scaledImage = ciContext.createCGImage(outputImage, from: outputImage.extent) else {
+            return image
+        }
+
+        return scaledImage
     }
 
     /// Set the cached source image (called by ImageInputProcessor)
@@ -462,6 +500,136 @@ public class RawrKit: ObservableObject {
     public func clearProcessedPreview() {
         Task { @MainActor in
             processedPreviewImage = nil
+        }
+    }
+
+    // MARK: - Export
+
+    /// Export the processed image at full resolution
+    /// - Parameters:
+    ///   - nodeGraph: The node graph to execute at full resolution
+    ///   - to: The destination URL to save the image
+    ///   - format: The image format to export (default: TIFF for lossless quality)
+    /// - Returns: True if export succeeded, false otherwise
+    public func exportImage(_ nodeGraph: NodeGraph, to url: URL, format: ExportFormat = .tiff) async -> Bool {
+        await MainActor.run {
+            isProcessing = true
+            performance.startTime = Date()
+        }
+
+        defer {
+            Task { @MainActor in
+                isProcessing = false
+                performance.endTime = Date()
+            }
+        }
+
+        log("Starting full resolution export to: \(url.lastPathComponent)")
+
+        // Switch to full resolution mode
+        isFullResolutionMode = true
+        clearSourceImageCache() // Clear cache to force full-res reload
+
+        defer {
+            // Switch back to preview mode
+            isFullResolutionMode = false
+            clearSourceImageCache() // Clear cache to reload preview resolution
+        }
+
+        // Execute graph at full resolution
+        guard let executor = graphExecutor else {
+            log("Graph executor not initialized", level: .error)
+            return false
+        }
+
+        // Clear cache to ensure full resolution processing
+        await executor.clearCache()
+
+        let result = await Task.detached {
+            await executor.execute(nodeGraph: nodeGraph)
+        }.value
+
+        guard !result.isEmpty else {
+            log("No output generated during export", level: .error)
+            return false
+        }
+
+        // Get the processed image
+        guard let (_, outputs) = result.first,
+              let outputData = outputs["Output"],
+              let finalImage = outputData.cgImage else {
+            log("Failed to extract processed image for export", level: .error)
+            return false
+        }
+
+        log("Processed image at full resolution: \(finalImage.width)x\(finalImage.height)")
+
+        // Save the image
+        return await saveImage(finalImage, to: url, format: format)
+    }
+
+    /// Save a CGImage to disk in the specified format
+    private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat) async -> Bool {
+        do {
+            let destination = CGImageDestinationCreateWithURL(url as CFURL, format.utType.identifier as CFString, 1, nil)
+            guard let destination = destination else {
+                log("Failed to create image destination", level: .error)
+                return false
+            }
+
+            // Set properties based on format
+            var properties: [CFString: Any] = [:]
+
+            switch format {
+            case .tiff:
+                properties[kCGImagePropertyTIFFCompression] = 1 // No compression for maximum quality
+            case .jpeg(let quality):
+                properties[kCGImageDestinationLossyCompressionQuality] = quality
+            case .png:
+                break // PNG is already lossless
+            }
+
+            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+
+            guard CGImageDestinationFinalize(destination) else {
+                log("Failed to write image to disk", level: .error)
+                return false
+            }
+
+            log("Successfully exported image to: \(url.lastPathComponent)")
+            return true
+        } catch {
+            log("Export failed: \(error.localizedDescription)", level: .error)
+            return false
+        }
+    }
+}
+
+/// Export format options
+public enum ExportFormat {
+    case tiff
+    case jpeg(quality: CGFloat) // quality: 0.0 to 1.0
+    case png
+
+    var utType: UTType {
+        switch self {
+        case .tiff:
+            return .tiff
+        case .jpeg:
+            return .jpeg
+        case .png:
+            return .png
+        }
+    }
+
+    public var fileExtension: String {
+        switch self {
+        case .tiff:
+            return "tiff"
+        case .jpeg:
+            return "jpg"
+        case .png:
+            return "png"
         }
     }
 }

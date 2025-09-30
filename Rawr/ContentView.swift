@@ -8,6 +8,22 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Export Helper
+
+/// Dummy document for file exporter (actual export is handled by RawrKit)
+struct ExportDocument: FileDocument {
+    static var readableContentTypes: [UTType] = [.tiff, .jpeg, .png]
+
+    init() {}
+
+    init(configuration: ReadConfiguration) throws {}
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        // Return empty file wrapper - actual export is handled by RawrKit
+        return FileWrapper(regularFileWithContents: Data())
+    }
+}
+
 // MARK: - ContentView
 
 struct ContentView: View {
@@ -78,6 +94,9 @@ struct EditorView: View {
 struct PreviewSectionView: View {
     @Binding var document: RawrDocument
     @StateObject private var rawrKit = RawrKit()
+    @State private var isExporting = false
+    @State private var showExportDialog = false
+    @State private var exportFormat: ExportFormat = .tiff
 
     var imageInputNode: NodeData? {
         document.flowDocument?.nodeGraph.nodes.first(where: { $0.type == .imageInput })
@@ -89,10 +108,15 @@ struct PreviewSectionView: View {
 
     var isPreviewNodeConnected: Bool {
         guard let nodeGraph = document.flowDocument?.nodeGraph,
-              let previewNode = previewNode else {
+              let previewNode = previewNode
+        else {
             return false
         }
         return nodeGraph.connections.contains(where: { $0.toNodeId == previewNode.id })
+    }
+
+    var canExport: Bool {
+        isPreviewNodeConnected
     }
 
     private var imagePreviewsView: some View {
@@ -106,11 +130,21 @@ struct PreviewSectionView: View {
 
     private var beforePreviewView: some View {
         VStack(spacing: 0) {
-            Text("Before")
-                .font(.headline)
-                .padding(8)
-                .frame(maxWidth: .infinity)
-                .background(Color(NSColor.controlBackgroundColor))
+            HStack {
+                Text("Before")
+                    .font(.headline)
+
+                Spacer()
+
+                // Invisible spacer to match "After" header height
+                Button(action: {}) {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .hidden()
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(Color(NSColor.controlBackgroundColor))
 
             if let previewImage = rawrKit.previewImage {
                 let nsImage = NSImage(cgImage: previewImage, size: NSSize(width: previewImage.width, height: previewImage.height))
@@ -128,11 +162,22 @@ struct PreviewSectionView: View {
 
     private var afterPreviewView: some View {
         VStack(spacing: 0) {
-            Text("After")
-                .font(.headline)
-                .padding(8)
-                .frame(maxWidth: .infinity)
-                .background(Color(NSColor.controlBackgroundColor))
+            HStack {
+                Text("After")
+                    .font(.headline)
+
+                Spacer()
+
+                Button(action: { showExportDialog = true }) {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .disabled(!canExport)
+                .help(canExport ? "Export processed image at full resolution" : "Connect nodes to enable export")
+                .animation(.none, value: canExport) // Prevent flashing
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity)
+            .background(Color(NSColor.controlBackgroundColor))
 
             if isPreviewNodeConnected,
                let processedPreview = rawrKit.processedPreviewImage
@@ -208,6 +253,19 @@ struct PreviewSectionView: View {
             logsView
         }
         .background(Color(NSColor.textBackgroundColor))
+        .fileExporter(
+            isPresented: $showExportDialog,
+            document: ExportDocument(),
+            contentType: exportFormat.utType,
+            defaultFilename: defaultExportFilename()
+        ) { result in
+            switch result {
+            case .success(let url):
+                exportImage(to: url)
+            case .failure(let error):
+                rawrKit.log("Export cancelled or failed: \(error.localizedDescription)", level: .error)
+            }
+        }
         .onAppear {
             loadImageOrExecuteGraph()
         }
@@ -228,6 +286,34 @@ struct PreviewSectionView: View {
         }
     }
 
+    private func defaultExportFilename() -> String {
+        if let imageURL = imageInputNode?.imageURL {
+            let baseName = imageURL.deletingPathExtension().lastPathComponent
+            return "\(baseName)_processed.\(exportFormat.fileExtension)"
+        }
+        return "processed.\(exportFormat.fileExtension)"
+    }
+
+    private func exportImage(to url: URL) {
+        guard let nodeGraph = document.flowDocument?.nodeGraph else {
+            rawrKit.log("No node graph available for export", level: .error)
+            return
+        }
+
+        isExporting = true
+        Task {
+            let success = await rawrKit.exportImage(nodeGraph, to: url, format: exportFormat)
+            await MainActor.run {
+                isExporting = false
+                if success {
+                    rawrKit.log("Export completed successfully", level: .info)
+                } else {
+                    rawrKit.log("Export failed", level: .error)
+                }
+            }
+        }
+    }
+
     private func loadImageOrExecuteGraph() {
         guard let nodeGraph = document.flowDocument?.nodeGraph else {
             print("PreviewSectionView: No nodeGraph available")
@@ -242,31 +328,30 @@ struct PreviewSectionView: View {
 
         // If we have a connected preview node, execute the full graph
         if previewNodeConnected {
-            print("PreviewSectionView: Found connected preview node, executing full graph")
             executeGraph()
         } else {
             // Clear processed preview when preview node is not connected
             rawrKit.clearProcessedPreview()
 
             if let imageInputNode = nodeGraph.nodes.first(where: { $0.type == .imageInput }) {
-            // Otherwise, just load the image input for the "Before" view
-            // Resolve URL from bookmark if available
-            let urlToLoad: URL?
-            if let bookmarkData = imageInputNode.imageBookmark {
-                urlToLoad = rawrKit.resolveBookmark(bookmarkData)
-            } else {
-                urlToLoad = imageInputNode.imageURL
-            }
-
-            if let url = urlToLoad {
-                print("PreviewSectionView: Loading image from: \(url.path)")
-                Task {
-                    let success = await rawrKit.loadRawFile(from: url)
-                    print("PreviewSectionView: Image load result: \(success)")
+                // Otherwise, just load the image input for the "Before" view
+                // Resolve URL from bookmark if available
+                let urlToLoad: URL?
+                if let bookmarkData = imageInputNode.imageBookmark {
+                    urlToLoad = rawrKit.resolveBookmark(bookmarkData)
+                } else {
+                    urlToLoad = imageInputNode.imageURL
                 }
-            } else {
-                print("PreviewSectionView: No valid URL or bookmark for image input node")
-            }
+
+                if let url = urlToLoad {
+                    print("PreviewSectionView: Loading image from: \(url.path)")
+                    Task {
+                        let success = await rawrKit.loadRawFile(from: url)
+                        print("PreviewSectionView: Image load result: \(success)")
+                    }
+                } else {
+                    print("PreviewSectionView: No valid URL or bookmark for image input node")
+                }
             } else {
                 print("PreviewSectionView: No image input node")
             }

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <g id="face-base" fill="#FFFFFF">
+    <circle cx="342" cy="292" r="120"/>
+    <circle cx="682" cy="292" r="120"/>
+    <circle cx="512" cy="552" r="280"/>
+  </g>
+  <g id="features" fill="#FFFFFF">
+    <!-- eyes as simple dots for strong small-size readability -->
+    <circle cx="392" cy="540" r="28"/>
+    <circle cx="632" cy="540" r="28"/>
+    <!-- nose -->
+    <circle cx="512" cy="612" r="16"/>
+    <!-- mouth -->
+    <path d="M468 652 Q512 680 556 652" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+  </g>
+</svg>

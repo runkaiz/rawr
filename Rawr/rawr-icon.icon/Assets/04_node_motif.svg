@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Minimal node-graph accent (3 nodes + connectors) -->
+  <g id="nodes" fill="#FFFFFF" opacity="0.9">
+    <circle id="n1" cx="700" cy="760" r="16"/>
+    <circle id="n2" cx="790" cy="820" r="16"/>
+    <circle id="n3" cx="840" cy="720" r="16"/>
+  </g>
+  <g id="edges" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.55">
+    <line x1="700" y1="760" x2="790" y2="820"/>
+    <line x1="790" y1="820" x2="840" y2="720"/>
+    <line x1="840" y1="720" x2="700" y2="760"/>
+  </g>
+</svg>

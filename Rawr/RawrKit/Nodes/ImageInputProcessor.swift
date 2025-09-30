@@ -34,13 +34,11 @@ public class ImageInputProcessor: MetalNodeProcessor {
             return nil
         }
 
-        // Load the image
-        guard let cgImage = await loadImage(from: url, context: context) else {
+        // Use RawrKit's cached source image loading which handles preview scaling
+        guard let cgImage = await context.logger?.getCachedSourceImage(for: url) else {
+            context.log("Failed to load image from URL", level: .error)
             return nil
         }
-
-        // Cache the source image in RawrKit to avoid reloading
-        context.logger?.setCachedSourceImage(cgImage, for: url)
 
         // Convert to Metal texture
         guard let texture = createTexture(from: cgImage, device: context.device) else {
@@ -70,59 +68,6 @@ public class ImageInputProcessor: MetalNodeProcessor {
             return resolvedURL
         } catch {
             context.log("Failed to resolve bookmark: \(error.localizedDescription)", level: .error)
-            return nil
-        }
-    }
-
-    private func loadImage(from url: URL, context: ProcessingContext) async -> CGImage? {
-        let gotAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if gotAccess {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        do {
-            let imageData = try Data(contentsOf: url)
-            context.log("Loaded file data: \(imageData.count) bytes")
-
-            guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else {
-                context.log("Failed to create image source from data", level: .error)
-                return nil
-            }
-
-            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
-            let orientation = properties?[kCGImagePropertyOrientation] as? UInt32 ?? CGImagePropertyOrientation.up.rawValue
-
-            let options: [CFString: Any] = [
-                kCGImageSourceShouldAllowFloat: true,
-                kCGImageSourceShouldCache: false,
-                kCGImageSourceCreateThumbnailFromImageAlways: false
-            ]
-
-            if let rawCGImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) {
-                // Apply orientation if needed
-                if orientation != CGImagePropertyOrientation.up.rawValue {
-                    context.log("Applying orientation correction")
-                    let ciImage = CIImage(cgImage: rawCGImage)
-                    let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(orientation))
-
-                    if let correctedCGImage = context.ciContext.createCGImage(orientedCIImage, from: orientedCIImage.extent) {
-                        return correctedCGImage
-                    }
-                }
-                return rawCGImage
-            } else {
-                // Try Core Image as fallback
-                guard let ciImage = CIImage(data: imageData, options: [.applyOrientationProperty: true]) else {
-                    context.log("Failed to create CIImage from data", level: .error)
-                    return nil
-                }
-
-                return context.ciContext.createCGImage(ciImage, from: ciImage.extent)
-            }
-        } catch {
-            context.log("Failed to read file: \(error.localizedDescription)", level: .error)
             return nil
         }
     }

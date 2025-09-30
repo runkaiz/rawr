@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Left and right eye clipping circles to create an aperture look with crisp edges -->
+    <clipPath id="eyeClipL">
+      <circle cx="392" cy="540" r="56"/>
+    </clipPath>
+    <clipPath id="eyeClipR">
+      <circle cx="632" cy="540" r="56"/>
+    </clipPath>
+  </defs>
+
+  <!-- Inner ears -->
+  <g id="inner-ears" fill="#FFCDBD" opacity="0.85">
+    <circle cx="342" cy="292" r="70"/>
+    <circle cx="682" cy="292" r="70"/>
+  </g>
+
+  <!-- Eyes: stylized 6-blade aperture using rotated bars, clipped to circles -->
+  <g id="eyes" fill="#0B1221">
+    <g clip-path="url(#eyeClipL)">
+      <!-- base iris -->
+      <circle cx="392" cy="540" r="56" fill="#1E293B"/>
+      <!-- blades -->
+      <rect x="332" y="532" width="120" height="16" rx="8" opacity="0.95" transform="rotate(0,392,540)"/>
+      <rect x="332" y="532" width="120" height="16" rx="8" opacity="0.80" transform="rotate(60,392,540)"/>
+      <rect x="332" y="532" width="120" height="16" rx="8" opacity="0.70" transform="rotate(120,392,540)"/>
+      <rect x="332" y="532" width="120" height="16" rx="8" opacity="0.60" transform="rotate(180,392,540)"/>
+      <rect x="332" y="532" width="120" height="16" rx="8" opacity="0.50" transform="rotate(240,392,540)"/>
+      <rect x="332" y="532" width="120" height="16" rx="8" opacity="0.40" transform="rotate(300,392,540)"/>
+      <!-- subtle highlight -->
+      <circle cx="372" cy="520" r="10" fill="#FFFFFF" opacity="0.75"/>
+    </g>
+
+    <g clip-path="url(#eyeClipR)">
+      <circle cx="632" cy="540" r="56" fill="#1E293B"/>
+      <rect x="572" y="532" width="120" height="16" rx="8" opacity="0.95" transform="rotate(0,632,540)"/>
+      <rect x="572" y="532" width="120" height="16" rx="8" opacity="0.80" transform="rotate(60,632,540)"/>
+      <rect x="572" y="532" width="120" height="16" rx="8" opacity="0.70" transform="rotate(120,632,540)"/>
+      <rect x="572" y="532" width="120" height="16" rx="8" opacity="0.60" transform="rotate(180,632,540)"/>
+      <rect x="572" y="532" width="120" height="16" rx="8" opacity="0.50" transform="rotate(240,632,540)"/>
+      <rect x="572" y="532" width="120" height="16" rx="8" opacity="0.40" transform="rotate(300,632,540)"/>
+      <circle cx="612" cy="520" r="10" fill="#FFFFFF" opacity="0.75"/>
+    </g>
+  </g>
+
+  <!-- Nose (rounded triangle feel) -->
+  <path id="nose" fill="#28334A" d="M512 592
+      C 498 602, 498 620, 512 628
+      C 526 620, 526 602, 512 592 Z"/>
+
+  <!-- Mouth -->
+  <g id="mouth" fill="none" stroke="#28334A" stroke-width="10" stroke-linecap="round">
+    <path d="M512 628 C 500 644, 484 652, 468 652"/>
+    <path d="M512 628 C 524 644, 540 652, 556 652"/>
+  </g>
+</svg>
