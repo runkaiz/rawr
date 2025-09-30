@@ -100,6 +100,11 @@ struct NodeGraphView: View {
             },
             onConnectInput: { input in
                 if let from = connectingFrom {
+                    // Remove any existing connection to this input (inputs can only have 1 connection)
+                    connections.removeAll { connection in
+                        connection.toNodeId == node.id && connection.toInput == input
+                    }
+
                     let connection = Connection(
                         fromNodeId: from.nodeId,
                         fromOutput: from.output,
