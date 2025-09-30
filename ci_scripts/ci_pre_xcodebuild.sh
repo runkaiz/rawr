@@ -1,10 +1,3 @@
-#
-//  ci_pre_xcodebuild.sh
-//  Rawr
-//
-//  Created by Runkai Zhang on 9/30/25.
-//
-
 # Get Xcode major version
 # `xcodebuild -version` returns something like:
 # Xcode 26.0.1
