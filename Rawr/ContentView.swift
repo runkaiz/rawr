@@ -10,39 +10,9 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Binding var document: RawrDocument
-    @State private var isDeveloperMode: Bool = true
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Top toolbar for mode switching
-            HStack {
-                Picker("Mode", selection: $isDeveloperMode) {
-                    Text("Editor Mode").tag(false)
-                    Text("Developer Mode").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
-
-                Spacer()
-
-                Text(isDeveloperMode ? "RawrKit Development Interface" : "Rawr Editor")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-
-            Divider()
-
-            // Main content area
-            Group {
-                if isDeveloperMode {
-                    DeveloperView()
-                } else {
-                    EditorView(document: $document)
-                }
-            }
-        }
+        EditorView(document: $document)
     }
 }
 
@@ -69,15 +39,19 @@ struct EditorView: View {
                     nodes: Binding(
                         get: { document.flowDocument?.nodeGraph.nodes ?? [] },
                         set: { newNodes in
-                            let connections = document.flowDocument?.nodeGraph.connections ?? []
-                            try? document.updateNodeGraph(nodes: newNodes, connections: connections)
+                            var updatedDoc = document
+                            let connections = updatedDoc.flowDocument?.nodeGraph.connections ?? []
+                            try? updatedDoc.updateNodeGraph(nodes: newNodes, connections: connections)
+                            document = updatedDoc
                         }
                     ),
                     connections: Binding(
                         get: { document.flowDocument?.nodeGraph.connections ?? [] },
                         set: { newConnections in
-                            let nodes = document.flowDocument?.nodeGraph.nodes ?? []
-                            try? document.updateNodeGraph(nodes: nodes, connections: newConnections)
+                            var updatedDoc = document
+                            let nodes = updatedDoc.flowDocument?.nodeGraph.nodes ?? []
+                            try? updatedDoc.updateNodeGraph(nodes: nodes, connections: newConnections)
+                            document = updatedDoc
                         }
                     ),
                     selectedNodeType: $selectedNodeType
@@ -97,6 +71,7 @@ struct EditorView: View {
 
 struct PreviewSectionView: View {
     @Binding var document: RawrDocument
+    @StateObject private var rawrKit = RawrKit()
 
     var imageInputNode: NodeData? {
         document.flowDocument?.nodeGraph.nodes.first(where: { $0.type == .imageInput })
@@ -116,8 +91,8 @@ struct PreviewSectionView: View {
                     .frame(maxWidth: .infinity)
                     .background(Color(NSColor.controlBackgroundColor))
 
-                if let imageURL = imageInputNode?.imageURL,
-                   let nsImage = NSImage(contentsOf: imageURL) {
+                if let previewImage = rawrKit.previewImage {
+                    let nsImage = NSImage(cgImage: previewImage, size: NSSize(width: previewImage.width, height: previewImage.height))
                     Image(nsImage: nsImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -140,10 +115,8 @@ struct PreviewSectionView: View {
                     .background(Color(NSColor.controlBackgroundColor))
 
                 if let _ = previewNode,
-                   let imageInputNode = imageInputNode,
-                   let imageURL = imageInputNode.imageURL,
-                   let nsImage = NSImage(contentsOf: imageURL) {
-                    // TODO: Apply node graph operations to the image
+                   let processedPreview = rawrKit.processedPreviewImage {
+                    let nsImage = NSImage(cgImage: processedPreview, size: NSSize(width: processedPreview.width, height: processedPreview.height))
                     Image(nsImage: nsImage)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -156,6 +129,48 @@ struct PreviewSectionView: View {
             }
         }
         .background(Color(NSColor.textBackgroundColor))
+        .onAppear {
+            print("🎬 PreviewSectionView.onAppear called")
+            loadImageFromNode()
+        }
+        .task(id: imageInputNode?.imageURL) {
+            loadImageFromNode()
+        }
+    }
+
+    private func loadImageFromNode() {
+        guard let node = imageInputNode else {
+            return
+        }
+
+        // Try to resolve from bookmark first, fall back to URL
+        let urlToLoad: URL?
+        if let bookmarkData = node.imageBookmark {
+            do {
+                var isStale = false
+                let resolvedURL = try URL(resolvingBookmarkData: bookmarkData, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale)
+                if isStale {
+                    rawrKit.log("Security bookmark is stale, file may have moved", level: .warning)
+                }
+                urlToLoad = resolvedURL
+            } catch {
+                rawrKit.log("Failed to resolve security bookmark: \(error.localizedDescription)", level: .warning)
+                urlToLoad = nil
+            }
+        } else {
+            // No bookmark - this is likely an old document or a newly selected file in the current session
+            // For newly selected files, the fileImporter gives us temporary access
+            urlToLoad = node.imageURL
+        }
+
+        if let url = urlToLoad {
+            Task {
+                let success = await rawrKit.loadRawFile(from: url)
+                if !success {
+                    rawrKit.log("Cannot access file. If this is a saved document, please re-select the image.", level: .error)
+                }
+            }
+        }
     }
 }
 

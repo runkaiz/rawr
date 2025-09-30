@@ -30,6 +30,7 @@ struct NodeData: Identifiable, Codable {
     var inputs: [String] = []
     var outputs: [String] = []
     var imageURL: URL?
+    var imageBookmark: Data? // Security-scoped bookmark data
 
     init(id: UUID = UUID(), type: NodeType, position: CGPoint) {
         self.id = id

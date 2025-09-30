@@ -8,16 +8,41 @@ Rawr is a macOS document-based SwiftUI application that is a node based RAW file
 
 ## Architecture
 
+### Core Principle: Rawr is just the frontend, RawrKit is the backend
+
+**CRITICAL**: All important logic must be implemented in RawrKit, not in the main app. The Rawr app is purely a UI layer.
+
 ### Core Components
 
 - **RawrApp.swift**: Main app entry point using DocumentGroup pattern with minimum window size constraints (900x700)
 - **RawrDocument.swift**: Document model conforming to FileDocument protocol, handles custom `.flow` file type (`xyz.runkaizhang.flow`)
-- **ContentView.swift**: Main view (currently minimal with just a Spacer)
-- **RawrKit/**: Framework/library directory for image processing logic
-  - **IMPORTANT**: RawrKit handles security-scoped resource access internally in `loadRawFile()` (line 109 in Source.swift)
-  - All image processing and file I/O operations should be encapsulated in RawrKit
-  - DO NOT directly load images with NSImage/CGImage in main app - use RawrKit methods instead
-  - Main app should only handle UI and pass URLs to RawrKit for processing
+- **ContentView.swift**: Main UI views - should ONLY handle presentation and user interaction
+- **RawrKit/**: Framework/library directory - ALL business logic goes here
+  - **RawrKit handles ALL important operations including:**
+    - Security-scoped resource access (via `loadRawFile()` in Source.swift)
+    - Image loading and processing
+    - File I/O operations
+    - RAW file decoding
+    - Image format conversions
+    - All computational/processing logic
+  - **Published properties for UI binding:**
+    - `previewImage: CGImage?` - The loaded image preview for display
+    - `processedPreviewImage: CGImage?` - The processed image preview for display
+    - `isProcessing: Bool` - Processing state
+    - `logs: [LogEntry]` - Log entries for debugging
+    - `performance: PerformanceMetrics` - Performance metrics
+  - **DO NOT implement any of the following in the main app:**
+    - Direct file access with `NSImage(contentsOf:)` or `Data(contentsOf:)`
+    - Image processing or manipulation
+    - Security-scoped resource handling
+    - RAW file decoding
+    - Any business logic
+  - **Main app responsibilities:**
+    - Display RawrKit's published images (previewImage, processedPreviewImage)
+    - Call RawrKit methods (loadRawFile, invertImage, etc.)
+    - Provide UI for node graph editing
+    - Pass URLs to RawrKit for processing
+    - Bind to RawrKit's published properties for reactive UI updates
 
 ### Document System
 
@@ -66,4 +91,37 @@ ContentView imports Metal and MetalKit frameworks, suggesting the app may be int
 
 ### Current State
 The application is in early development with minimal implementation - most views and functionality are stubbed out.
-- "Always update the Claude.MD when new functionality is added to Rawrkit"
+
+## Implementation Guidelines
+
+### When implementing new features:
+
+1. **Always consider RawrKit first**: Ask yourself "Should this logic be in RawrKit?" The answer is almost always YES if it involves:
+   - File operations
+   - Image processing
+   - Computation
+   - State management of image data
+   - Security-scoped resources
+
+2. **RawrKit API pattern**:
+   ```swift
+   // In RawrKit: Expose published properties
+   @Published public var someResult: CGImage?
+
+   // In RawrKit: Provide async methods
+   public func processImage(from url: URL) async -> Bool
+
+   // In Main App: Create RawrKit instance
+   @StateObject private var rawrKit = RawrKit()
+
+   // In Main App: Call methods and display results
+   .task {
+       await rawrKit.loadRawFile(from: url)
+   }
+   Image(nsImage: NSImage(cgImage: rawrKit.previewImage, ...))
+   ```
+
+3. **Always update CLAUDE.md** when new functionality is added to RawrKit, documenting:
+   - New public methods
+   - New published properties
+   - Expected usage patterns

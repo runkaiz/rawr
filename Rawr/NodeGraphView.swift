@@ -99,8 +99,23 @@ struct NodeGraphView: View {
             },
             onImageSelect: { url in
                 if let index = nodes.firstIndex(where: { $0.id == node.id }) {
-                    // TODO: Use RawrKit.loadRawFile() instead of directly storing URL
                     nodes[index].imageURL = url
+                    // Create security-scoped bookmark
+                    // The URL from fileImporter already has security scope access
+                    let accessing = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if accessing {
+                            url.stopAccessingSecurityScopedResource()
+                        }
+                    }
+
+                    do {
+                        let bookmarkData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+                        nodes[index].imageBookmark = bookmarkData
+                        print("📑 Created security-scoped bookmark for: \(url.lastPathComponent)")
+                    } catch {
+                        print("⚠️ Failed to create bookmark: \(error.localizedDescription)")
+                    }
                 }
             },
             onInputHover: { input in

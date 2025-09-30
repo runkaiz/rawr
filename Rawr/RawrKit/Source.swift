@@ -34,6 +34,7 @@ public class RawrKit: ObservableObject {
 
     public func log(_ message: String, level: LogLevel = .info) {
         let entry = LogEntry(message: message, level: level, timestamp: Date())
+        print("🔧 RawrKit [\(level.rawValue)]: \(message)")
         DispatchQueue.main.async {
             self.logs.append(entry)
         }
@@ -68,6 +69,7 @@ public class RawrKit: ObservableObject {
     }
 
     public func loadRawFile(from url: URL) async -> Bool {
+        print("🔧 RawrKit.loadRawFile called with URL: \(url.path)")
         await MainActor.run {
             isProcessing = true
             performance.startTime = Date()
@@ -159,6 +161,7 @@ public class RawrKit: ObservableObject {
             await MainActor.run {
                 self.currentImage = cgImage
                 self.previewImage = self.createPreview(from: cgImage)
+                print("🔧 RawrKit: Set previewImage to \(cgImage.width)x\(cgImage.height)")
             }
 
             log("Successfully loaded RAW file: \(cgImage.width)x\(cgImage.height) pixels")
