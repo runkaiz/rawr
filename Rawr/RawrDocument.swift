@@ -8,6 +8,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - NodeGraphError
+
 enum NodeGraphError: LocalizedError {
     case tooManyImageInputs
     case tooManyPreviews
@@ -24,7 +26,7 @@ enum NodeGraphError: LocalizedError {
 
 extension UTType {
     static var flow: UTType {
-        UTType(importedAs: "xyz.runkaizhang.flow")
+        UTType(exportedAs: "xyz.runkaizhang.flow")
     }
 
     static var dng: UTType {
@@ -38,11 +40,11 @@ struct RawrDocument: FileDocument {
 
     init(sourceImageURL: URL? = nil) {
         if let url = sourceImageURL {
-            self.sourceImageData = try? Data(contentsOf: url)
-            self.flowDocument = FlowDocument(sourceFileURL: url)
+            sourceImageData = try? Data(contentsOf: url)
+            flowDocument = FlowDocument(sourceFileURL: url)
         } else {
-            self.sourceImageData = nil
-            self.flowDocument = FlowDocument(sourceFileURL: nil)
+            sourceImageData = nil
+            flowDocument = FlowDocument(sourceFileURL: nil)
         }
     }
 
@@ -79,29 +81,29 @@ struct RawrDocument: FileDocument {
                     decodedFlow = FlowDocument(version: decodedFlow.version, sourceFile: decodedFlow.sourceFile, metadata: decodedFlow.metadata, nodeGraph: updatedNodeGraph)
                 }
 
-                self.flowDocument = decodedFlow
-                self.sourceImageData = nil
+                flowDocument = decodedFlow
+                sourceImageData = nil
             } catch {
                 throw CocoaError(.fileReadCorruptFile)
             }
         } else if contentType == .dng || contentType == UTType("public.camera-raw-image") || contentType == .rawImage {
             if let data = configuration.file.regularFileContents {
-                self.sourceImageData = data
+                sourceImageData = data
             } else {
-                self.sourceImageData = nil
+                sourceImageData = nil
             }
 
             if let filename = configuration.file.filename {
                 let sourceURL = URL(fileURLWithPath: filename)
-                self.flowDocument = FlowDocument(sourceFileURL: sourceURL)
+                flowDocument = FlowDocument(sourceFileURL: sourceURL)
             } else {
-                self.flowDocument = nil
+                flowDocument = nil
             }
         } else {
             throw CocoaError(.fileReadUnsupportedScheme)
         }
     }
-    
+
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         if configuration.contentType == .flow {
             guard let flowDocument = flowDocument else {
