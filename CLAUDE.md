@@ -101,7 +101,11 @@ There's an inconsistency between the document type definitions:
 
 ### Metal GPU Acceleration
 All image processing operations use Metal compute shaders for GPU acceleration:
-- **Shaders.metal**: Contains Metal compute kernels (invertImage, adjustExposure, applyGamma, copyTexture)
+- **Shaders/**: Individual shader files for each node type
+  - **InversionShader.metal**: Film negative inversion kernel
+  - **ExposureShader.metal**: Exposure adjustment kernel
+  - **GammaShader.metal**: Gamma correction kernel
+  - **CopyShader.metal**: Pass-through copy kernel
 - Images are processed as Metal textures (rgba16Float format for high precision)
 - Node processors execute Metal shaders through the command queue
 
@@ -132,16 +136,20 @@ The node system is fully implemented with a modular, extensible design:
    - Caches outputs to avoid redundant processing
    - Handles connection traversal and data flow
 
-3. **NodeProcessors.swift**: Concrete implementations of node processors
-   - `ImageInputProcessor`: Loads images from disk with security-scoped access
-   - `InversionProcessor`: Applies film negative inversion using Metal shader
-   - `PreviewProcessor`: Terminal node that collects processed images
+3. **Nodes/**: Modular node processor implementations (each in its own file)
+   - **ImageInputProcessor.swift**: Loads images from disk with security-scoped access
+   - **InversionProcessor.swift**: Applies film negative inversion using Metal shader
+   - **PreviewProcessor.swift**: Terminal node that collects processed images
    - Each processor is self-contained and handles its own Metal shader execution
 
 #### Adding New Nodes:
 1. Add new case to `NodeType` enum in NodeTypes.swift
-2. Create a new processor class in NodeProcessors.swift:
+2. Create a new processor file in **Nodes/** directory:
    ```swift
+   // Nodes/MyNewProcessor.swift
+   import Foundation
+   import Metal
+
    public class MyNewProcessor: MetalNodeProcessor {
        public init() {
            super.init(nodeType: .myNew)
@@ -154,7 +162,7 @@ The node system is fully implemented with a modular, extensible design:
        }
    }
    ```
-3. Add Metal shader to Shaders.metal if needed
+3. Create a new shader file in **Shaders/** directory if needed (e.g., `MyNewShader.metal`)
 4. Register processor in GraphExecutor.registerDefaultProcessors()
 
 #### Data Flow:
