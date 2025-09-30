@@ -222,6 +222,10 @@ struct PreviewSectionView: View {
         .task(id: document.flowDocument?.nodeGraph.connections) {
             loadImageOrExecuteGraph()
         }
+        .task(id: document.flowDocument?.nodeGraph.nodes.map { "\($0.id):\($0.parameters)" }.joined()) {
+            // Re-execute when any node parameters change
+            loadImageOrExecuteGraph()
+        }
     }
 
     private func loadImageOrExecuteGraph() {

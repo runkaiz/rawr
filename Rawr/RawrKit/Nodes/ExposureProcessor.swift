@@ -28,8 +28,8 @@ public class ExposureProcessor: MetalNodeProcessor {
             return nil
         }
 
-        // Default exposure adjustment: +1 stop
-        let exposureStops: Float = 1.0
+        // Read exposure value from node parameters, with fallback to default
+        let exposureStops: Float = Float(node.parameters["stops"] ?? 0.0)
 
         context.log("Applying exposure adjustment: \(exposureStops) stops")
 

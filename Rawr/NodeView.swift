@@ -31,6 +31,7 @@ struct NodeView: View {
     let onInputHoverEnd: () -> Void
     let onDelete: () -> Void
     let onPositionChange: (CGPoint) -> Void
+    let onParameterChange: ([String: Double]) -> Void
     let isConnecting: Bool
 
     @State private var showingImagePicker = false
@@ -72,7 +73,7 @@ struct NodeView: View {
                     }
             )
 
-            // Image Input specific content
+            // Node-specific content
             if node.type == .imageInput {
                 VStack(spacing: 4) {
                     Button(action: {
@@ -97,6 +98,58 @@ struct NodeView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
+                }
+                .padding(.horizontal, 12)
+            } else if node.type == .exposure {
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("Stops")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(String(format: "%.1f", node.parameters["stops"] ?? 0.0))
+                            .font(.caption2)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { node.parameters["stops"] ?? 0.0 },
+                            set: { newValue in
+                                var updatedParams = node.parameters
+                                updatedParams["stops"] = newValue
+                                onParameterChange(updatedParams)
+                            }
+                        ),
+                        in: -5...5,
+                        step: 0.1
+                    )
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 12)
+            } else if node.type == .gamma {
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("Gamma")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(String(format: "%.2f", node.parameters["gamma"] ?? 2.2))
+                            .font(.caption2)
+                            .monospacedDigit()
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { node.parameters["gamma"] ?? 2.2 },
+                            set: { newValue in
+                                var updatedParams = node.parameters
+                                updatedParams["gamma"] = newValue
+                                onParameterChange(updatedParams)
+                            }
+                        ),
+                        in: 0.5...4.0,
+                        step: 0.01
+                    )
+                    .controlSize(.small)
                 }
                 .padding(.horizontal, 12)
             }

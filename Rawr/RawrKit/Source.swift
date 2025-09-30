@@ -19,6 +19,8 @@ public class RawrKit: ObservableObject {
 
     // Graph execution
     private var graphExecutor: GraphExecutor?
+    private var executionTask: Task<Void, Never>?
+    private var pendingNodeGraph: NodeGraph?
 
     // Internal storage for full resolution images (legacy support)
     private var currentImage: CGImage?
@@ -288,56 +290,84 @@ public class RawrKit: ObservableObject {
     /// Execute the node graph and update preview images
     /// This is the main entry point for processing images through the node graph
     public func executeGraph(_ nodeGraph: NodeGraph) async -> Bool {
-        guard let executor = graphExecutor else {
-            log("Graph executor not initialized (Metal device required)", level: .error)
-            return false
-        }
+        // Queue the execution request
+        pendingNodeGraph = nodeGraph
 
-        await MainActor.run {
-            isProcessing = true
-            performance.startTime = Date()
-        }
-
-        defer {
-            Task { @MainActor in
-                isProcessing = false
-                performance.endTime = Date()
-            }
-        }
-
-        log("Executing node graph...")
-
-        // Execute the graph
-        let previewOutputs = await executor.execute(nodeGraph: nodeGraph)
-
-        guard !previewOutputs.isEmpty else {
-            log("No preview outputs generated", level: .warning)
-            return false
-        }
-
-        // Get the first preview node's output (we only allow one preview node)
-        if let (_, outputs) = previewOutputs.first,
-           let outputData = outputs["Output"] {
-
-            // Create previews for display
-            let beforeImage = await getSourceImage(from: nodeGraph)
-            let afterImage = outputData.cgImage
-
-            await MainActor.run {
-                if let beforeImage = beforeImage {
-                    self.previewImage = self.createPreview(from: beforeImage)
-                }
-                if let afterImage = afterImage {
-                    self.processedPreviewImage = self.createPreview(from: afterImage)
-                }
-            }
-
-            log("Graph execution completed successfully")
+        // If there's already an execution running, it will pick up the pending graph
+        if executionTask != nil {
             return true
         }
 
-        log("Failed to extract preview output", level: .error)
-        return false
+        // Start a new execution task
+        executionTask = Task { @MainActor in
+            await self.processGraphQueue()
+        }
+
+        return true
+    }
+
+    private func processGraphQueue() async {
+        guard let executor = graphExecutor else {
+            log("Graph executor not initialized (Metal device required)", level: .error)
+            executionTask = nil
+            return
+        }
+
+        while let nodeGraph = pendingNodeGraph {
+            // Clear pending before execution so new requests can queue
+            pendingNodeGraph = nil
+
+            await MainActor.run {
+                isProcessing = true
+                performance.startTime = Date()
+            }
+
+            log("Executing node graph...")
+
+            // Execute the graph on a background actor
+            let result = await Task.detached {
+                await executor.execute(nodeGraph: nodeGraph)
+            }.value
+
+            guard !result.isEmpty else {
+                log("No preview outputs generated", level: .warning)
+                await MainActor.run {
+                    isProcessing = false
+                    performance.endTime = Date()
+                }
+                continue
+            }
+
+            // Get the first preview node's output (we only allow one preview node)
+            if let (_, outputs) = result.first,
+               let outputData = outputs["Output"] {
+
+                // Create previews for display
+                let beforeImage = await getSourceImage(from: nodeGraph)
+                let afterImage = outputData.cgImage
+
+                await MainActor.run {
+                    if let beforeImage = beforeImage {
+                        self.previewImage = self.createPreview(from: beforeImage)
+                    }
+                    if let afterImage = afterImage {
+                        self.processedPreviewImage = self.createPreview(from: afterImage)
+                    }
+                    isProcessing = false
+                    performance.endTime = Date()
+                }
+
+                log("Graph execution completed successfully")
+            } else {
+                log("Failed to extract preview output", level: .error)
+                await MainActor.run {
+                    isProcessing = false
+                    performance.endTime = Date()
+                }
+            }
+        }
+
+        executionTask = nil
     }
 
     /// Extract the source image from the graph's Image Input node

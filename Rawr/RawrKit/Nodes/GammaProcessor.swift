@@ -23,14 +23,14 @@ public class GammaProcessor: MetalNodeProcessor {
         super.init(nodeType: .gamma)
     }
 
-    override public func process(inputs: [String: ImageData], node _: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
+    override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
         guard let inputData = inputs["Input"] else {
             context.log("No input image for gamma correction", level: .error)
             return nil
         }
 
-        // Default gamma value: 2.2 (sRGB standard)
-        let gamma: Float = 2.2
+        // Read gamma value from node parameters, with fallback to default
+        let gamma: Float = Float(node.parameters["gamma"] ?? 2.2)
 
         context.log("Applying gamma correction: \(gamma)")
 

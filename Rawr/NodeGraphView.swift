@@ -212,6 +212,11 @@ struct NodeGraphView: View {
                     nodes[index].position = newPosition
                 }
             },
+            onParameterChange: { updatedParameters in
+                if let index = nodes.firstIndex(where: { $0.id == node.id }) {
+                    nodes[index].parameters = updatedParameters
+                }
+            },
             isConnecting: connectingFrom != nil
         )
         .position(node.position)

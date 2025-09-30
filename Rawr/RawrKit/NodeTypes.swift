@@ -35,6 +35,7 @@ public struct NodeData: Identifiable, Codable {
     public var outputs: [String] = []
     public var imageURL: URL?
     public var imageBookmark: Data? // Security-scoped bookmark data
+    public var parameters: [String: Double] = [:] // Node-specific parameters
 
     public init(id: UUID = UUID(), type: NodeType, position: CGPoint) {
         self.id = id
@@ -44,9 +45,17 @@ public struct NodeData: Identifiable, Codable {
         switch type {
         case .imageInput:
             self.outputs = ["Image"]
-        case .inversion, .exposure, .gamma:
+        case .inversion:
             self.inputs = ["Input"]
             self.outputs = ["Output"]
+        case .exposure:
+            self.inputs = ["Input"]
+            self.outputs = ["Output"]
+            self.parameters = ["stops": 0.0] // Default: no exposure adjustment
+        case .gamma:
+            self.inputs = ["Input"]
+            self.outputs = ["Output"]
+            self.parameters = ["gamma": 2.2] // Default: sRGB standard gamma
         case .preview:
             self.inputs = ["Input"]
         }
