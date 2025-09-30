@@ -568,40 +568,34 @@ public class RawrKit: ObservableObject {
         return await saveImage(finalImage, to: url, format: format)
     }
 
-    /// Save a CGImage to disk in the specified format
     private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat) async -> Bool {
-        do {
-            let destination = CGImageDestinationCreateWithURL(url as CFURL, format.utType.identifier as CFString, 1, nil)
-            guard let destination = destination else {
-                log("Failed to create image destination", level: .error)
-                return false
-            }
-
-            // Set properties based on format
-            var properties: [CFString: Any] = [:]
-
-            switch format {
-            case .tiff:
-                properties[kCGImagePropertyTIFFCompression] = 1 // No compression for maximum quality
-            case .jpeg(let quality):
-                properties[kCGImageDestinationLossyCompressionQuality] = quality
-            case .png:
-                break // PNG is already lossless
-            }
-
-            CGImageDestinationAddImage(destination, image, properties as CFDictionary)
-
-            guard CGImageDestinationFinalize(destination) else {
-                log("Failed to write image to disk", level: .error)
-                return false
-            }
-
-            log("Successfully exported image to: \(url.lastPathComponent)")
-            return true
-        } catch {
-            log("Export failed: \(error.localizedDescription)", level: .error)
+        let destination = CGImageDestinationCreateWithURL(url as CFURL, format.utType.identifier as CFString, 1, nil)
+        guard let destination = destination else {
+            log("Failed to create image destination", level: .error)
             return false
         }
+
+        // Set properties based on format
+        var properties: [CFString: Any] = [:]
+
+        switch format {
+        case .tiff:
+            properties[kCGImagePropertyTIFFCompression] = 1 // No compression for maximum quality
+        case .jpeg(let quality):
+            properties[kCGImageDestinationLossyCompressionQuality] = quality
+        case .png:
+            break // PNG is already lossless
+        }
+
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+
+        guard CGImageDestinationFinalize(destination) else {
+            log("Failed to write image to disk", level: .error)
+            return false
+        }
+
+        log("Successfully exported image to: \(url.lastPathComponent)")
+        return true
     }
 }
 
