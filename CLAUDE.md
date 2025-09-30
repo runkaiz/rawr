@@ -20,6 +20,7 @@ Rawr is a macOS document-based SwiftUI application that is a node based RAW file
 - **RawrKit/**: Framework/library directory - ALL business logic goes here
   - **RawrKit handles ALL important operations including:**
     - Security-scoped resource access (via `loadRawFile()` in Source.swift)
+    - Security-scoped bookmark creation and resolution
     - Image loading and processing
     - File I/O operations
     - RAW file decoding
@@ -31,6 +32,12 @@ Rawr is a macOS document-based SwiftUI application that is a node based RAW file
     - `isProcessing: Bool` - Processing state
     - `logs: [LogEntry]` - Log entries for debugging
     - `performance: PerformanceMetrics` - Performance metrics
+  - **Static utility methods:**
+    - `RawrKit.createSecurityBookmark(for: URL) -> Data?` - Creates security-scoped bookmark for file persistence
+  - **Instance methods:**
+    - `loadRawFile(from: URL) async -> Bool` - Loads and processes RAW files with security-scoped access
+    - `resolveBookmark(_: Data) -> URL?` - Resolves security-scoped bookmarks with logging
+    - `invertImage() async -> Bool` - Applies film negative inversion processing
   - **DO NOT implement any of the following in the main app:**
     - Direct file access with `NSImage(contentsOf:)` or `Data(contentsOf:)`
     - Image processing or manipulation
