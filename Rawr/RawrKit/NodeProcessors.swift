@@ -39,6 +39,9 @@ public class ImageInputProcessor: MetalNodeProcessor {
             return nil
         }
 
+        // Cache the source image in RawrKit to avoid reloading
+        context.logger?.setCachedSourceImage(cgImage, for: url)
+
         // Convert to Metal texture
         guard let texture = createTexture(from: cgImage, device: context.device) else {
             context.log("Failed to create Metal texture from image", level: .error)

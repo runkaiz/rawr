@@ -41,6 +41,8 @@ Rawr is a macOS document-based SwiftUI application that is a node based RAW file
     - `invertImage() async -> Bool` - (Legacy) Applies film negative inversion processing
     - **`executeGraph(_: NodeGraph) async -> Bool`** - **PRIMARY API**: Executes the node graph and updates preview images
     - `clearGraphCache()` - Clears the graph execution cache (call when graph structure changes)
+    - `clearSourceImageCache()` - Clears the source image cache (call when image URL changes)
+    - `clearProcessedPreview()` - Clears the processed preview image (call when preview node is disconnected)
   - **DO NOT implement any of the following in the main app:**
     - Direct file access with `NSImage(contentsOf:)` or `Data(contentsOf:)`
     - Image processing or manipulation
@@ -102,6 +104,17 @@ All image processing operations use Metal compute shaders for GPU acceleration:
 - **Shaders.metal**: Contains Metal compute kernels (invertImage, adjustExposure, applyGamma, copyTexture)
 - Images are processed as Metal textures (rgba16Float format for high precision)
 - Node processors execute Metal shaders through the command queue
+
+### Source Image Caching
+RawrKit implements source image caching to avoid redundant file loading:
+- **Cache behavior**: When an image is loaded through `ImageInputProcessor`, it's cached in RawrKit
+- **Cache lookup**: When `executeGraph()` needs the source image for the "Before" preview, it uses the cached version
+- **Cache invalidation**: The cache is automatically cleared when the image URL changes (via `.task(id: imageInputNode?.imageURL)` in ContentView)
+- **Benefits**: Reduces lag when connecting nodes by avoiding duplicate image loading and preview creation
+- **Implementation**:
+  - `ImageInputProcessor` calls `context.logger?.setCachedSourceImage()` after loading
+  - `executeGraph()` calls `getCachedSourceImage()` to retrieve the cached image
+  - UI calls `clearSourceImageCache()` when image URL changes
 
 ### Node System Architecture
 

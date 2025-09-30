@@ -87,6 +87,14 @@ struct PreviewSectionView: View {
         document.flowDocument?.nodeGraph.nodes.first(where: { $0.type == .preview })
     }
 
+    var isPreviewNodeConnected: Bool {
+        guard let nodeGraph = document.flowDocument?.nodeGraph,
+              let previewNode = previewNode else {
+            return false
+        }
+        return nodeGraph.connections.contains(where: { $0.toNodeId == previewNode.id })
+    }
+
     private var imagePreviewsView: some View {
         HStack(spacing: 0) {
             beforePreviewView
@@ -126,7 +134,7 @@ struct PreviewSectionView: View {
                 .frame(maxWidth: .infinity)
                 .background(Color(NSColor.controlBackgroundColor))
 
-            if let _ = previewNode,
+            if isPreviewNodeConnected,
                let processedPreview = rawrKit.processedPreviewImage
             {
                 let nsImage = NSImage(cgImage: processedPreview, size: NSSize(width: processedPreview.width, height: processedPreview.height))
@@ -204,6 +212,8 @@ struct PreviewSectionView: View {
             loadImageOrExecuteGraph()
         }
         .task(id: imageInputNode?.imageURL) {
+            // Clear source image cache when image URL changes
+            rawrKit.clearSourceImageCache()
             loadImageOrExecuteGraph()
         }
         .task(id: document.flowDocument?.nodeGraph.nodes.count) {
@@ -230,7 +240,11 @@ struct PreviewSectionView: View {
         if previewNodeConnected {
             print("PreviewSectionView: Found connected preview node, executing full graph")
             executeGraph()
-        } else if let imageInputNode = nodeGraph.nodes.first(where: { $0.type == .imageInput }) {
+        } else {
+            // Clear processed preview when preview node is not connected
+            rawrKit.clearProcessedPreview()
+
+            if let imageInputNode = nodeGraph.nodes.first(where: { $0.type == .imageInput }) {
             // Otherwise, just load the image input for the "Before" view
             // Resolve URL from bookmark if available
             let urlToLoad: URL?
@@ -249,8 +263,9 @@ struct PreviewSectionView: View {
             } else {
                 print("PreviewSectionView: No valid URL or bookmark for image input node")
             }
-        } else {
-            print("PreviewSectionView: No image input node")
+            } else {
+                print("PreviewSectionView: No image input node")
+            }
         }
     }
 

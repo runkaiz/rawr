@@ -24,6 +24,10 @@ public class RawrKit: ObservableObject {
     private var currentImage: CGImage?
     private var processedImage: CGImage?
 
+    // Source image cache to avoid reloading
+    private var cachedSourceImage: CGImage?
+    private var cachedSourceURL: URL?
+
     public init() {
         self.device = MTLCreateSystemDefaultDevice()
 
@@ -354,7 +358,28 @@ public class RawrKit: ObservableObject {
             return nil
         }
 
-        // Load the image (reuse existing loadRawFile logic)
+        // Use cached source image if available
+        return await getCachedSourceImage(for: url)
+    }
+
+    /// Clear the graph execution cache (call when graph structure changes)
+    public func clearGraphCache() {
+        graphExecutor?.clearCache()
+        log("Graph cache cleared")
+    }
+
+    // MARK: - Source Image Cache Management
+
+    /// Get the cached source image for a given URL, or load it if not cached
+    internal func getCachedSourceImage(for url: URL) async -> CGImage? {
+        // Check if we already have this image cached
+        if let cachedURL = cachedSourceURL, cachedURL == url, let cached = cachedSourceImage {
+            log("Using cached source image for: \(url.lastPathComponent)")
+            return cached
+        }
+
+        // Cache miss - load the image
+        log("Loading source image (cache miss): \(url.lastPathComponent)")
         let gotAccess = url.startAccessingSecurityScopedResource()
         defer {
             if gotAccess {
@@ -373,16 +398,41 @@ public class RawrKit: ObservableObject {
                 kCGImageSourceShouldCache: false
             ]
 
-            return CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary)
+            guard let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
+                return nil
+            }
+
+            // Update cache
+            cachedSourceImage = cgImage
+            cachedSourceURL = url
+            log("Cached source image: \(cgImage.width)x\(cgImage.height)")
+
+            return cgImage
         } catch {
+            log("Failed to load source image: \(error.localizedDescription)", level: .error)
             return nil
         }
     }
 
-    /// Clear the graph execution cache (call when graph structure changes)
-    public func clearGraphCache() {
-        graphExecutor?.clearCache()
-        log("Graph cache cleared")
+    /// Set the cached source image (called by ImageInputProcessor)
+    internal func setCachedSourceImage(_ image: CGImage, for url: URL) {
+        cachedSourceImage = image
+        cachedSourceURL = url
+        log("Source image cached: \(url.lastPathComponent)")
+    }
+
+    /// Clear the source image cache (call when image URL changes)
+    public func clearSourceImageCache() {
+        cachedSourceImage = nil
+        cachedSourceURL = nil
+        log("Source image cache cleared")
+    }
+
+    /// Clear the processed preview image (call when preview node is disconnected)
+    public func clearProcessedPreview() {
+        Task { @MainActor in
+            processedPreviewImage = nil
+        }
     }
 }
 
