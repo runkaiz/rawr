@@ -26,6 +26,7 @@ Rawr is a macOS document-based SwiftUI application that is a node based RAW file
     - RAW file decoding
     - Image format conversions
     - All computational/processing logic
+    - **Node graph execution with Metal GPU acceleration**
   - **Published properties for UI binding:**
     - `previewImage: CGImage?` - The loaded image preview for display
     - `processedPreviewImage: CGImage?` - The processed image preview for display
@@ -35,20 +36,23 @@ Rawr is a macOS document-based SwiftUI application that is a node based RAW file
   - **Static utility methods:**
     - `RawrKit.createSecurityBookmark(for: URL) -> Data?` - Creates security-scoped bookmark for file persistence
   - **Instance methods:**
-    - `loadRawFile(from: URL) async -> Bool` - Loads and processes RAW files with security-scoped access
+    - `loadRawFile(from: URL) async -> Bool` - (Legacy) Loads and processes RAW files with security-scoped access
     - `resolveBookmark(_: Data) -> URL?` - Resolves security-scoped bookmarks with logging
-    - `invertImage() async -> Bool` - Applies film negative inversion processing
+    - `invertImage() async -> Bool` - (Legacy) Applies film negative inversion processing
+    - **`executeGraph(_: NodeGraph) async -> Bool`** - **PRIMARY API**: Executes the node graph and updates preview images
+    - `clearGraphCache()` - Clears the graph execution cache (call when graph structure changes)
   - **DO NOT implement any of the following in the main app:**
     - Direct file access with `NSImage(contentsOf:)` or `Data(contentsOf:)`
     - Image processing or manipulation
     - Security-scoped resource handling
     - RAW file decoding
+    - Node graph execution or processing logic
     - Any business logic
   - **Main app responsibilities:**
     - Display RawrKit's published images (previewImage, processedPreviewImage)
-    - Call RawrKit methods (loadRawFile, invertImage, etc.)
+    - Call `rawrKit.executeGraph(nodeGraph)` when graph changes
     - Provide UI for node graph editing
-    - Pass URLs to RawrKit for processing
+    - Pass NodeGraph to RawrKit for processing
     - Bind to RawrKit's published properties for reactive UI updates
 
 ### Document System
@@ -93,11 +97,60 @@ There's an inconsistency between the document type definitions:
 - Code defines UTType as `xyz.runkaizhang.flow`
 - Info.plist defines it as `com.example.plain-text` with `.exampletext` extension
 
-### Metal/MetalKit Integration
-ContentView imports Metal and MetalKit frameworks, suggesting the app may be intended for graphics/rendering work, though no implementation is present yet.
+### Metal GPU Acceleration
+All image processing operations use Metal compute shaders for GPU acceleration:
+- **Shaders.metal**: Contains Metal compute kernels (invertImage, adjustExposure, applyGamma, copyTexture)
+- Images are processed as Metal textures (rgba16Float format for high precision)
+- Node processors execute Metal shaders through the command queue
 
-### Current State
-The application is in early development with minimal implementation - most views and functionality are stubbed out.
+### Node System Architecture
+
+The node system is fully implemented with a modular, extensible design:
+
+#### Core Components (all in RawrKit):
+1. **NodeProcessor.swift**: Protocol and base class for all node processors
+   - `NodeProcessor` protocol: Defines `process()` and `canProcess()` methods
+   - `MetalNodeProcessor`: Base class with Metal texture utilities
+   - `ImageData`: Runtime representation of images flowing through the graph (contains MTLTexture + CGImage + metadata)
+   - `ProcessingContext`: Shared Metal resources passed to all processors
+
+2. **GraphExecutor.swift**: Graph execution engine with dependency resolution
+   - Recursively executes nodes in dependency order
+   - Caches outputs to avoid redundant processing
+   - Handles connection traversal and data flow
+
+3. **NodeProcessors.swift**: Concrete implementations of node processors
+   - `ImageInputProcessor`: Loads images from disk with security-scoped access
+   - `InversionProcessor`: Applies film negative inversion using Metal shader
+   - `PreviewProcessor`: Terminal node that collects processed images
+   - Each processor is self-contained and handles its own Metal shader execution
+
+#### Adding New Nodes:
+1. Add new case to `NodeType` enum in NodeTypes.swift
+2. Create a new processor class in NodeProcessors.swift:
+   ```swift
+   public class MyNewProcessor: MetalNodeProcessor {
+       public init() {
+           super.init(nodeType: .myNew)
+       }
+
+       override public func process(inputs: [String: ImageData],
+                                   node: NodeData,
+                                   context: ProcessingContext) async -> [String: ImageData]? {
+           // Implement processing logic using Metal
+       }
+   }
+   ```
+3. Add Metal shader to Shaders.metal if needed
+4. Register processor in GraphExecutor.registerDefaultProcessors()
+
+#### Data Flow:
+1. UI calls `rawrKit.executeGraph(nodeGraph)`
+2. GraphExecutor finds Preview nodes and traverses backward
+3. Each node's processor is executed with inputs from upstream nodes
+4. ImageData (Metal textures + CGImages) flows through connections
+5. Results are cached to avoid re-execution
+6. Final images are published to UI via `previewImage` and `processedPreviewImage`
 
 ## Implementation Guidelines
 
