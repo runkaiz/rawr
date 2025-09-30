@@ -108,7 +108,8 @@ struct NodeView: View {
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(hoveredInput == input && isConnecting ? Color.green : Color.gray)
-                                .frame(width: hoveredInput == input && isConnecting ? 12 : 10, height: hoveredInput == input && isConnecting ? 12 : 10)
+                                .frame(width: 10, height: 10)
+                                .scaleEffect(hoveredInput == input && isConnecting ? 1.2 : 1.0)
                                 .overlay(
                                     Circle()
                                         .stroke(hoveredInput == input && isConnecting ? Color.green : Color.clear, lineWidth: 2)

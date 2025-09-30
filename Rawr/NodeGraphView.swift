@@ -78,16 +78,21 @@ struct NodeGraphView: View {
             .onPreferenceChange(OutputDotPositionKey.self) { positions in
                 outputDotPositions = positions
             }
-            .focusable(false)
-            .focusEffectDisabled()
-            .onKeyPress(.escape) {
-                // Cancel connection on Escape key
-                if connectingFrom != nil {
-                    connectingFrom = nil
-                    return .handled
-                }
-                return .ignored
-            }
+            .background(
+                // Invisible focusable overlay for keyboard events
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .focusable()
+                    .focusEffectDisabled()
+                    .onKeyPress(.escape) {
+                        // Cancel connection on Escape key
+                        if connectingFrom != nil {
+                            connectingFrom = nil
+                            return .handled
+                        }
+                        return .ignored
+                    }
+            )
         }
     }
 
