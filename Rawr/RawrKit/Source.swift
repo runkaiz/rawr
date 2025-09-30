@@ -14,9 +14,13 @@ public class RawrKit: ObservableObject {
 
     private let device: MTLDevice?
     private let ciContext: CIContext
+    private let commandQueue: MTLCommandQueue?
     private let maxPreviewDimension: CGFloat = 2048
 
-    // Internal storage for full resolution images
+    // Graph execution
+    private var graphExecutor: GraphExecutor?
+
+    // Internal storage for full resolution images (legacy support)
     private var currentImage: CGImage?
     private var processedImage: CGImage?
 
@@ -25,8 +29,23 @@ public class RawrKit: ObservableObject {
 
         if let device = device {
             self.ciContext = CIContext(mtlDevice: device)
+            self.commandQueue = device.makeCommandQueue()
+
+            // Initialize graph executor
+            if let commandQueue = self.commandQueue {
+                let context = ProcessingContext(
+                    device: device,
+                    commandQueue: commandQueue,
+                    ciContext: self.ciContext,
+                    logger: nil
+                )
+                self.graphExecutor = GraphExecutor(context: context)
+                // Set logger reference after initialization
+                context.logger = self
+            }
         } else {
             self.ciContext = CIContext()
+            self.commandQueue = nil
         }
 
         log("RawrKit initialized with Metal device: \(device?.name ?? "None")")
@@ -259,6 +278,112 @@ public class RawrKit: ObservableObject {
         log("Image inversion completed successfully")
         return true
     }
+
+    // MARK: - Graph Execution API
+
+    /// Execute the node graph and update preview images
+    /// This is the main entry point for processing images through the node graph
+    public func executeGraph(_ nodeGraph: NodeGraph) async -> Bool {
+        guard let executor = graphExecutor else {
+            log("Graph executor not initialized (Metal device required)", level: .error)
+            return false
+        }
+
+        await MainActor.run {
+            isProcessing = true
+            performance.startTime = Date()
+        }
+
+        defer {
+            Task { @MainActor in
+                isProcessing = false
+                performance.endTime = Date()
+            }
+        }
+
+        log("Executing node graph...")
+
+        // Execute the graph
+        let previewOutputs = await executor.execute(nodeGraph: nodeGraph)
+
+        guard !previewOutputs.isEmpty else {
+            log("No preview outputs generated", level: .warning)
+            return false
+        }
+
+        // Get the first preview node's output (we only allow one preview node)
+        if let (_, outputs) = previewOutputs.first,
+           let outputData = outputs["Output"] {
+
+            // Create previews for display
+            let beforeImage = await getSourceImage(from: nodeGraph)
+            let afterImage = outputData.cgImage
+
+            await MainActor.run {
+                if let beforeImage = beforeImage {
+                    self.previewImage = self.createPreview(from: beforeImage)
+                }
+                if let afterImage = afterImage {
+                    self.processedPreviewImage = self.createPreview(from: afterImage)
+                }
+            }
+
+            log("Graph execution completed successfully")
+            return true
+        }
+
+        log("Failed to extract preview output", level: .error)
+        return false
+    }
+
+    /// Extract the source image from the graph's Image Input node
+    private func getSourceImage(from nodeGraph: NodeGraph) async -> CGImage? {
+        guard let imageInputNode = nodeGraph.nodes.first(where: { $0.type == .imageInput }) else {
+            return nil
+        }
+
+        // Determine URL
+        let urlToLoad: URL?
+        if let bookmarkData = imageInputNode.imageBookmark {
+            urlToLoad = resolveBookmark(bookmarkData)
+        } else {
+            urlToLoad = imageInputNode.imageURL
+        }
+
+        guard let url = urlToLoad else {
+            return nil
+        }
+
+        // Load the image (reuse existing loadRawFile logic)
+        let gotAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if gotAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        do {
+            let imageData = try Data(contentsOf: url)
+            guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else {
+                return nil
+            }
+
+            let options: [CFString: Any] = [
+                kCGImageSourceShouldAllowFloat: true,
+                kCGImageSourceShouldCache: false
+            ]
+
+            return CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Clear the graph execution cache (call when graph structure changes)
+    public func clearGraphCache() {
+        graphExecutor?.clearCache()
+        log("Graph cache cleared")
+    }
 }
 
 public struct LogEntry: Identifiable {
@@ -280,6 +405,15 @@ public enum LogLevel: String, CaseIterable {
         case .info: return .blue
         case .warning: return .orange
         case .error: return .red
+        }
+    }
+
+    public var emoji: String {
+        switch self {
+        case .debug: return "🔍"
+        case .info: return "ℹ️"
+        case .warning: return "⚠️"
+        case .error: return "❌"
         }
     }
 }

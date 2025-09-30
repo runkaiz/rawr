@@ -7,20 +7,20 @@
 
 import Foundation
 
-struct FlowDocument: Codable {
-    let version: String
-    let sourceFile: SourceFileReference?
-    let metadata: DocumentMetadata
-    let nodeGraph: NodeGraph
+public struct FlowDocument: Codable {
+    public let version: String
+    public let sourceFile: SourceFileReference?
+    public let metadata: DocumentMetadata
+    public let nodeGraph: NodeGraph
 
-    init(sourceFileURL: URL? = nil) {
+    public init(sourceFileURL: URL? = nil) {
         self.version = "1.0"
         self.sourceFile = sourceFileURL.map { SourceFileReference(url: $0) }
         self.metadata = DocumentMetadata()
         self.nodeGraph = NodeGraph()
     }
 
-    init(version: String, sourceFile: SourceFileReference?, metadata: DocumentMetadata, nodeGraph: NodeGraph) {
+    public init(version: String, sourceFile: SourceFileReference?, metadata: DocumentMetadata, nodeGraph: NodeGraph) {
         self.version = version
         self.sourceFile = sourceFile
         self.metadata = metadata
@@ -28,24 +28,24 @@ struct FlowDocument: Codable {
     }
 }
 
-struct NodeGraph: Codable {
-    var nodes: [NodeData]
-    var connections: [Connection]
+public struct NodeGraph: Codable {
+    public var nodes: [NodeData]
+    public var connections: [Connection]
 
-    init(nodes: [NodeData] = [], connections: [Connection] = []) {
+    public init(nodes: [NodeData] = [], connections: [Connection] = []) {
         self.nodes = nodes
         self.connections = connections
     }
 }
 
-struct SourceFileReference: Codable {
-    let originalPath: String
-    let fileName: String
-    let fileSize: Int64?
-    let checksum: String?
-    let lastModified: Date?
+public struct SourceFileReference: Codable {
+    public let originalPath: String
+    public let fileName: String
+    public let fileSize: Int64?
+    public let checksum: String?
+    public let lastModified: Date?
 
-    init(url: URL) {
+    public init(url: URL) {
         self.originalPath = url.path
         self.fileName = url.lastPathComponent
 
@@ -62,19 +62,19 @@ struct SourceFileReference: Codable {
     }
 }
 
-struct DocumentMetadata: Codable {
-    let createdAt: Date
-    let lastModified: Date
-    let appVersion: String
+public struct DocumentMetadata: Codable {
+    public let createdAt: Date
+    public let lastModified: Date
+    public let appVersion: String
 
-    init() {
+    public init() {
         let now = Date()
         self.createdAt = now
         self.lastModified = now
         self.appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 
-    init(createdAt: Date, lastModified: Date, appVersion: String) {
+    public init(createdAt: Date, lastModified: Date, appVersion: String) {
         self.createdAt = createdAt
         self.lastModified = lastModified
         self.appVersion = appVersion

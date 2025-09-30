@@ -1,12 +1,12 @@
 import Foundation
 import SwiftUI
 
-enum NodeType: String, Codable, CaseIterable, Hashable {
+public enum NodeType: String, Codable, CaseIterable, Hashable {
     case imageInput = "Image Input"
     case inversion = "Inversion"
     case preview = "Preview"
 
-    var icon: String {
+    public var icon: String {
         switch self {
         case .imageInput: return "photo"
         case .inversion: return "circle.lefthalf.filled"
@@ -14,7 +14,7 @@ enum NodeType: String, Codable, CaseIterable, Hashable {
         }
     }
 
-    var maxAllowedCount: Int? {
+    public var maxAllowedCount: Int? {
         switch self {
         case .imageInput: return 1
         case .preview: return 1
@@ -23,16 +23,16 @@ enum NodeType: String, Codable, CaseIterable, Hashable {
     }
 }
 
-struct NodeData: Identifiable, Codable {
-    let id: UUID
-    var type: NodeType
-    var position: CGPoint
-    var inputs: [String] = []
-    var outputs: [String] = []
-    var imageURL: URL?
-    var imageBookmark: Data? // Security-scoped bookmark data
+public struct NodeData: Identifiable, Codable {
+    public let id: UUID
+    public var type: NodeType
+    public var position: CGPoint
+    public var inputs: [String] = []
+    public var outputs: [String] = []
+    public var imageURL: URL?
+    public var imageBookmark: Data? // Security-scoped bookmark data
 
-    init(id: UUID = UUID(), type: NodeType, position: CGPoint) {
+    public init(id: UUID = UUID(), type: NodeType, position: CGPoint) {
         self.id = id
         self.type = type
         self.position = position
@@ -49,14 +49,14 @@ struct NodeData: Identifiable, Codable {
     }
 }
 
-struct Connection: Identifiable, Codable {
-    let id: UUID
-    let fromNodeId: UUID
-    let fromOutput: String
-    let toNodeId: UUID
-    let toInput: String
+public struct Connection: Identifiable, Codable, Equatable {
+    public let id: UUID
+    public let fromNodeId: UUID
+    public let fromOutput: String
+    public let toNodeId: UUID
+    public let toInput: String
 
-    init(id: UUID = UUID(), fromNodeId: UUID, fromOutput: String, toNodeId: UUID, toInput: String) {
+    public init(id: UUID = UUID(), fromNodeId: UUID, fromOutput: String, toNodeId: UUID, toInput: String) {
         self.id = id
         self.fromNodeId = fromNodeId
         self.fromOutput = fromOutput

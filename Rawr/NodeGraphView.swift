@@ -34,8 +34,17 @@ struct NodeGraphView: View {
                             nodes.append(newNode)
                             selectedNodeType = nil
                         } else {
+                            // Cancel connection when clicking on empty space
                             connectingFrom = nil
                         }
+                    }
+                    .onKeyPress(.escape) {
+                        // Cancel connection on Escape key
+                        if connectingFrom != nil {
+                            connectingFrom = nil
+                            return .handled
+                        }
+                        return .ignored
                     }
 
                 // Dotted grid
