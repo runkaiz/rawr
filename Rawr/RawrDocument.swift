@@ -7,7 +7,6 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
-import CoreImage
 
 enum NodeGraphError: LocalizedError {
     case tooManyImageInputs
@@ -113,23 +112,6 @@ struct RawrDocument: FileDocument {
         }
     }
 
-    mutating func addEdit(_ operation: EditOperation) {
-        guard let flow = flowDocument else { return }
-        var updatedFlow = flow
-        updatedFlow = FlowDocument(
-            version: flow.version,
-            sourceFile: flow.sourceFile,
-            editHistory: flow.editHistory + [operation],
-            metadata: DocumentMetadata(
-                createdAt: flow.metadata.createdAt,
-                lastModified: Date(),
-                appVersion: flow.metadata.appVersion
-            ),
-            nodeGraph: flow.nodeGraph
-        )
-        flowDocument = updatedFlow
-    }
-
     mutating func updateNodeGraph(nodes: [NodeData], connections: [Connection]) throws {
         guard let flow = flowDocument else { return }
 
@@ -147,7 +129,6 @@ struct RawrDocument: FileDocument {
         flowDocument = FlowDocument(
             version: flow.version,
             sourceFile: flow.sourceFile,
-            editHistory: flow.editHistory,
             metadata: DocumentMetadata(
                 createdAt: flow.metadata.createdAt,
                 lastModified: Date(),
@@ -155,15 +136,5 @@ struct RawrDocument: FileDocument {
             ),
             nodeGraph: NodeGraph(nodes: nodes, connections: connections)
         )
-    }
-
-    func getSourceFileURL() -> URL? {
-        guard let flow = flowDocument, let sourceFile = flow.sourceFile else { return nil }
-        return URL(fileURLWithPath: sourceFile.originalPath)
-    }
-
-    func isSourceFileAvailable() -> Bool {
-        guard let url = getSourceFileURL() else { return false }
-        return FileManager.default.fileExists(atPath: url.path)
     }
 }

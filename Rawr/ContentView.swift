@@ -5,8 +5,6 @@
 //  Created by Runkai Zhang on 4/29/25.
 //
 
-import Metal
-import MetalKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -158,35 +156,6 @@ struct PreviewSectionView: View {
             }
         }
         .background(Color(NSColor.textBackgroundColor))
-    }
-}
-
-struct ImageDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.png] }
-
-    let imageData: Data?
-
-    init(image: CGImage?) {
-        if let image = image,
-           let destination = CFDataCreateMutable(nil, 0),
-           let destRef = CGImageDestinationCreateWithData(destination, UTType.png.identifier as CFString, 1, nil) {
-            CGImageDestinationAddImage(destRef, image, nil)
-            CGImageDestinationFinalize(destRef)
-            self.imageData = destination as Data
-        } else {
-            self.imageData = nil
-        }
-    }
-
-    init(configuration: ReadConfiguration) throws {
-        self.imageData = nil
-    }
-
-    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        guard let data = imageData else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        return FileWrapper(regularFileWithContents: data)
     }
 }
 

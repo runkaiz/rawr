@@ -6,27 +6,23 @@
 //
 
 import Foundation
-import CoreImage
 
 struct FlowDocument: Codable {
     let version: String
     let sourceFile: SourceFileReference?
-    let editHistory: [EditOperation]
     let metadata: DocumentMetadata
     let nodeGraph: NodeGraph
 
     init(sourceFileURL: URL? = nil) {
         self.version = "1.0"
         self.sourceFile = sourceFileURL.map { SourceFileReference(url: $0) }
-        self.editHistory = []
         self.metadata = DocumentMetadata()
         self.nodeGraph = NodeGraph()
     }
 
-    init(version: String, sourceFile: SourceFileReference?, editHistory: [EditOperation], metadata: DocumentMetadata, nodeGraph: NodeGraph) {
+    init(version: String, sourceFile: SourceFileReference?, metadata: DocumentMetadata, nodeGraph: NodeGraph) {
         self.version = version
         self.sourceFile = sourceFile
-        self.editHistory = editHistory
         self.metadata = metadata
         self.nodeGraph = nodeGraph
     }
@@ -83,72 +79,4 @@ struct DocumentMetadata: Codable {
         self.lastModified = lastModified
         self.appVersion = appVersion
     }
-}
-
-enum EditOperation: Codable {
-    case exposure(ExposureAdjustment)
-    case contrast(ContrastAdjustment)
-    case saturation(SaturationAdjustment)
-    case crop(CropOperation)
-    case rotate(RotateOperation)
-    case whiteBalance(WhiteBalanceAdjustment)
-
-    var id: UUID {
-        switch self {
-        case .exposure(let adj): return adj.id
-        case .contrast(let adj): return adj.id
-        case .saturation(let adj): return adj.id
-        case .crop(let op): return op.id
-        case .rotate(let op): return op.id
-        case .whiteBalance(let adj): return adj.id
-        }
-    }
-
-    var timestamp: Date {
-        switch self {
-        case .exposure(let adj): return adj.timestamp
-        case .contrast(let adj): return adj.timestamp
-        case .saturation(let adj): return adj.timestamp
-        case .crop(let op): return op.timestamp
-        case .rotate(let op): return op.timestamp
-        case .whiteBalance(let adj): return adj.timestamp
-        }
-    }
-}
-
-struct ExposureAdjustment: Codable {
-    let id = UUID()
-    let timestamp = Date()
-    let stops: Float
-}
-
-struct ContrastAdjustment: Codable {
-    let id = UUID()
-    let timestamp = Date()
-    let value: Float
-}
-
-struct SaturationAdjustment: Codable {
-    let id = UUID()
-    let timestamp = Date()
-    let value: Float
-}
-
-struct CropOperation: Codable {
-    let id = UUID()
-    let timestamp = Date()
-    let rect: CGRect
-}
-
-struct RotateOperation: Codable {
-    let id = UUID()
-    let timestamp = Date()
-    let degrees: Float
-}
-
-struct WhiteBalanceAdjustment: Codable {
-    let id = UUID()
-    let timestamp = Date()
-    let temperature: Float
-    let tint: Float
 }

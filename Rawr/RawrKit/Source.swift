@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 import Metal
-import MetalKit
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
@@ -10,20 +9,19 @@ public class RawrKit: ObservableObject {
     @Published public var isProcessing = false
     @Published public var logs: [LogEntry] = []
     @Published public var performance: PerformanceMetrics = PerformanceMetrics()
-    @Published public var currentImage: CGImage?
-    @Published public var processedImage: CGImage?
     @Published public var previewImage: CGImage?
     @Published public var processedPreviewImage: CGImage?
 
     private let device: MTLDevice?
-    private let commandQueue: MTLCommandQueue?
     private let ciContext: CIContext
-    private var pipelineState: MTLComputePipelineState?
     private let maxPreviewDimension: CGFloat = 2048
+
+    // Internal storage for full resolution images
+    private var currentImage: CGImage?
+    private var processedImage: CGImage?
 
     public init() {
         self.device = MTLCreateSystemDefaultDevice()
-        self.commandQueue = device?.makeCommandQueue()
 
         if let device = device {
             self.ciContext = CIContext(mtlDevice: device)
@@ -32,33 +30,12 @@ public class RawrKit: ObservableObject {
         }
 
         log("RawrKit initialized with Metal device: \(device?.name ?? "None")")
-        setupMetalPipeline()
     }
 
     public func log(_ message: String, level: LogLevel = .info) {
         let entry = LogEntry(message: message, level: level, timestamp: Date())
         DispatchQueue.main.async {
             self.logs.append(entry)
-        }
-    }
-
-    private func setupMetalPipeline() {
-        guard let device = device else {
-            log("No Metal device available", level: .error)
-            return
-        }
-
-        let library = device.makeDefaultLibrary()
-        guard let kernelFunction = library?.makeFunction(name: "invertColors") else {
-            log("Failed to create kernel function", level: .warning)
-            return
-        }
-
-        do {
-            pipelineState = try device.makeComputePipelineState(function: kernelFunction)
-            log("Metal pipeline initialized successfully")
-        } catch {
-            log("Failed to create pipeline state: \(error)", level: .error)
         }
     }
 
@@ -247,35 +224,6 @@ public class RawrKit: ObservableObject {
         log("Image inversion completed successfully")
         return true
     }
-
-    public func exportImage(to url: URL) async -> Bool {
-        guard let image = processedImage ?? currentImage else {
-            log("No image to export", level: .error)
-            return false
-        }
-
-        log("Exporting image to: \(url.lastPathComponent)")
-
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
-            log("Failed to create image destination", level: .error)
-            return false
-        }
-
-        // Set properties to maintain orientation
-        let properties: [CFString: Any] = [
-            kCGImagePropertyOrientation: CGImagePropertyOrientation.up.rawValue
-        ]
-
-        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
-
-        if CGImageDestinationFinalize(destination) {
-            log("Image exported successfully")
-            return true
-        } else {
-            log("Failed to finalize image export", level: .error)
-            return false
-        }
-    }
 }
 
 public struct LogEntry: Identifiable {
@@ -308,17 +256,5 @@ public struct PerformanceMetrics {
     public var duration: TimeInterval? {
         guard let start = startTime, let end = endTime else { return nil }
         return end.timeIntervalSince(start)
-    }
-}
-
-public struct ProcessingResult {
-    public let success: Bool
-    public let outputData: Data
-    public let error: Error?
-
-    public init(success: Bool, outputData: Data, error: Error? = nil) {
-        self.success = success
-        self.outputData = outputData
-        self.error = error
     }
 }
