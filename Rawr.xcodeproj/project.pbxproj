@@ -24,6 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		B2B15A272E8BC70000BF84FD /* ci_pre_xcodebuild.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = ci_pre_xcodebuild.sh; sourceTree = "<group>"; };
 		B2E1BA2A2DC192C5006664BD /* Rawr.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rawr.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2E1BA3B2DC192C6006664BD /* RawrTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RawrTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2E1BA452DC192C6006664BD /* RawrUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RawrUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -85,9 +86,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		B2B15A262E8BC6F600BF84FD /* ci_scripts */ = {
+			isa = PBXGroup;
+			children = (
+				B2B15A272E8BC70000BF84FD /* ci_pre_xcodebuild.sh */,
+			);
+			path = ci_scripts;
+			sourceTree = "<group>";
+		};
 		B2E1BA212DC192C5006664BD = {
 			isa = PBXGroup;
 			children = (
+				B2B15A262E8BC6F600BF84FD /* ci_scripts */,
 				B2E1BA2C2DC192C5006664BD /* Rawr */,
 				B2E1BA3E2DC192C6006664BD /* RawrTests */,
 				B2E1BA482DC192C6006664BD /* RawrUITests */,
