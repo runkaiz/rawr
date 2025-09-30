@@ -335,6 +335,7 @@ public class RawrKit: ObservableObject {
             guard !result.isEmpty else {
                 log("No preview outputs generated", level: .warning)
                 await MainActor.run {
+                    processedPreviewImage = nil
                     isProcessing = false
                     performance.endTime = Date()
                 }
