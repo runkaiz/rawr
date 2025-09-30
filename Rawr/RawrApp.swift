@@ -16,14 +16,6 @@ struct RawrApp: App {
                 .frame(minWidth: 900, minHeight: 700)
                 .navigationTitle("Rawr Editor")
         }
-        .commands {
-            CommandGroup(after: .newItem) {
-                Button("Open RAW Image...") {
-                    openRAWImage()
-                }
-                .keyboardShortcut("O", modifiers: [.command, .shift])
-            }
-        }
     }
 
     func openRAWImage() {
@@ -41,7 +33,7 @@ struct RawrApp: App {
                 defer { url.stopAccessingSecurityScopedResource() }
 
                 // Open the file in a new window
-                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { document, wasOpen, error in
+                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
                     if let error = error {
                         print("Error opening document: \(error)")
                     }
