@@ -307,6 +307,9 @@ struct NodeGraphView: View {
     }
 
     private func updateHoveredConnection(at location: CGPoint) {
+        // Convert viewport coordinates to node graph space (same space as connection positions)
+        let graphLocation = viewportToNodeGraphSpace(location, viewportSize: viewportSize)
+
         // Check all connections to find which one is being hovered
         for connection in connections {
             guard let fromPos = outputDotPositions[connection.fromNodeId]?[connection.fromOutput],
@@ -315,7 +318,7 @@ struct NodeGraphView: View {
                 continue
             }
 
-            if isPointNearCurve(location, from: fromPos, to: toPos) {
+            if isPointNearCurve(graphLocation, from: fromPos, to: toPos) {
                 hoveredConnectionId = connection.id
                 return
             }
