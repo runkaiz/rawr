@@ -300,18 +300,12 @@ struct NodeGraphView: View {
         let viewportCenterX = viewportSize.width / 2
         let viewportCenterY = viewportSize.height / 2
 
-        // Calculate offset needed to center nodes
-        let offsetX = viewportCenterX - centerX
-        let offsetY = viewportCenterY - centerY
-
-        // Apply offset to all nodes
+        // Move the view (gridOffset) to center nodes in viewport
         withAnimation(.easeInOut(duration: 0.3)) {
-            for i in nodes.indices {
-                nodes[i].position = CGPoint(
-                    x: nodes[i].position.x + offsetX,
-                    y: nodes[i].position.y + offsetY
-                )
-            }
+            gridOffset = CGPoint(
+                x: viewportCenterX - centerX,
+                y: viewportCenterY - centerY
+            )
         }
     }
 
