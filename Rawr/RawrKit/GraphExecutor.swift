@@ -27,6 +27,7 @@ public actor GraphExecutor {
             ExposureProcessor(context: context),
             GammaProcessor(context: context),
             DenoiseProcessor(context: context),
+            SharpeningProcessor(context: context),
             CombinationProcessor(context: context),
             PreviewProcessor()
         ]

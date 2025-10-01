@@ -7,6 +7,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     case exposure = "Exposure"
     case gamma = "Gamma"
     case denoise = "Denoise"
+    case sharpening = "Sharpening"
     case combination = "Combination"
     case preview = "Preview"
 
@@ -17,6 +18,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .exposure: return "sun.max"
         case .gamma: return "slider.horizontal.3"
         case .denoise: return "waveform.path"
+        case .sharpening: return "sparkles"
         case .combination: return "square.stack.3d.down.right"
         case .preview: return "eye"
         }
@@ -26,7 +28,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         switch self {
         case .imageInput: return 1
         case .preview: return 1
-        case .inversion, .exposure, .gamma, .denoise, .combination: return nil
+        case .inversion, .exposure, .gamma, .denoise, .sharpening, .combination: return nil
         }
     }
 }
@@ -64,6 +66,15 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             self.inputs = ["Input"]
             self.outputs = ["Output"]
             self.parameters = ["strength": 1.0, "colorSigma": 0.2] // Default: moderate denoising
+        case .sharpening:
+            self.inputs = ["Input"]
+            self.outputs = ["Output"]
+            self.parameters = [
+                "algorithm": 0.0,        // 0=Default, 1=Detail-max
+                "strength": 1.0,         // Overall sharpening strength
+                "radius": 1.0,           // Deconvolution radius
+                "iterations": 3.0        // Richardson-Lucy iterations
+            ]
         case .combination:
             self.inputs = ["Input A", "Input B"]
             self.outputs = ["Output"]
@@ -114,6 +125,21 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             }
             if parameters["colorSigma"] == nil {
                 parameters["colorSigma"] = 0.2
+            }
+        case .sharpening:
+            inputs = ["Input"]
+            outputs = ["Output"]
+            if parameters["algorithm"] == nil {
+                parameters["algorithm"] = 0.0
+            }
+            if parameters["strength"] == nil {
+                parameters["strength"] = 1.0
+            }
+            if parameters["radius"] == nil {
+                parameters["radius"] = 1.0
+            }
+            if parameters["iterations"] == nil {
+                parameters["iterations"] = 3.0
             }
         case .combination:
             inputs = ["Input A", "Input B"]

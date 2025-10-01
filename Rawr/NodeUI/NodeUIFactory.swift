@@ -94,6 +94,42 @@ public class NodeUIFactory {
             ]
         ))
 
+        // Sharpening Node
+        register(descriptor: NodeUIDescriptor(
+            nodeType: .sharpening,
+            components: [
+                PickerComponent(
+                    parameterKey: "algorithm",
+                    label: "Algorithm",
+                    options: [
+                        ("Default (Safe)", 0.0),
+                        ("Detail-max (Low ISO)", 1.0)
+                    ]
+                ),
+                SliderComponent(
+                    parameterKey: "strength",
+                    label: "Strength",
+                    range: 0.1 ... 2.0,
+                    step: 0.1,
+                    format: "%.1f"
+                ),
+                SliderComponent(
+                    parameterKey: "radius",
+                    label: "Radius",
+                    range: 0.5 ... 3.0,
+                    step: 0.1,
+                    format: "%.1f"
+                ),
+                SliderComponent(
+                    parameterKey: "iterations",
+                    label: "Iterations",
+                    range: 1 ... 10,
+                    step: 1,
+                    format: "%.0f"
+                )
+            ]
+        ))
+
         // Inversion Node (no custom UI)
         register(descriptor: NodeUIDescriptor.empty(for: .inversion))
 
