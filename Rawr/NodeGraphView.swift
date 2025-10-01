@@ -16,12 +16,15 @@ struct NodeGraphView: View {
     @State private var dragStart: CGPoint?
     @State private var viewportSize: CGSize = .zero
     @State private var zoomScale: CGFloat = 1.0
-    @State private var lastMouseLocation: CGPoint = .zero
+    @State private var zoomAnchor: CGPoint = .zero
+    @State private var baseZoomScale: CGFloat = 1.0
+    @State private var isZooming: Bool = false
+    @State private var currentMouseLocation: CGPoint = .zero
 
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Background with tap gesture
+                // Background with tap gesture - always fills viewport
                 Color(nsColor: .textBackgroundColor)
                     .contentShape(Rectangle())
                     .onTapGesture { location in
@@ -35,10 +38,10 @@ struct NodeGraphView: View {
                                 }
                             }
 
-                            // Adjust position to account for pan offset
+                            // Adjust position to account for zoom and pan
                             let adjustedLocation = CGPoint(
-                                x: location.x - panOffset.width,
-                                y: location.y - panOffset.height
+                                x: (location.x - panOffset.width) / zoomScale,
+                                y: (location.y - panOffset.height) / zoomScale
                             )
                             let newNode = NodeData(
                                 type: nodeType,
@@ -69,8 +72,8 @@ struct NodeGraphView: View {
                                 // Apply the pan offset to all nodes
                                 for i in nodes.indices {
                                     nodes[i].position = CGPoint(
-                                        x: nodes[i].position.x + panOffset.width,
-                                        y: nodes[i].position.y + panOffset.height
+                                        x: nodes[i].position.x + panOffset.width / zoomScale,
+                                        y: nodes[i].position.y + panOffset.height / zoomScale
                                     )
                                 }
                                 panOffset = .zero
@@ -78,78 +81,92 @@ struct NodeGraphView: View {
                             }
                     )
 
-                // Dotted grid
-                GridPattern(size: geometry.size)
+                // Scaled content layer
+                ZStack {
+                    // Dotted grid
+                    GridPattern(size: geometry.size)
 
-                // Connection lines
-                ForEach(connections) { connection in
-                    if let fromPos = outputDotPositions[connection.fromNodeId]?[connection.fromOutput],
-                       let toPos = inputDotPositions[connection.toNodeId]?[connection.toInput]
+                    // Connection lines
+                    ForEach(connections) { connection in
+                        if let fromPos = outputDotPositions[connection.fromNodeId]?[connection.fromOutput],
+                           let toPos = inputDotPositions[connection.toNodeId]?[connection.toInput]
+                        {
+                            ConnectionLine(
+                                from: fromPos,
+                                to: toPos,
+                                isPreview: false,
+                                isHovering: hoveredConnectionId == connection.id,
+                                onTap: {
+                                    connections.removeAll { $0.id == connection.id }
+                                }
+                            )
+                        }
+                    }
+
+                    // Preview connection line while connecting
+                    if let from = connectingFrom,
+                       let fromPos = outputDotPositions[from.nodeId]?[from.output]
                     {
                         ConnectionLine(
                             from: fromPos,
-                            to: toPos,
-                            isPreview: false,
-                            isHovering: hoveredConnectionId == connection.id,
-                            onTap: {
-                                connections.removeAll { $0.id == connection.id }
-                            }
+                            to: currentMousePosition,
+                            isPreview: true,
+                            isHovering: false,
+                            onTap: nil
                         )
                     }
-                }
 
-                // Preview connection line while connecting
-                if let from = connectingFrom,
-                   let fromPos = outputDotPositions[from.nodeId]?[from.output]
-                {
-                    ConnectionLine(
-                        from: fromPos,
-                        to: currentMousePosition,
-                        isPreview: true,
-                        isHovering: false,
-                        onTap: nil
-                    )
+                    // Nodes
+                    ForEach(nodes) { node in
+                        nodeView(for: node)
+                            .offset(panOffset)
+                    }
                 }
-
-                // Nodes
-                ForEach(nodes) { node in
-                    nodeView(for: node)
-                        .scaleEffect(zoomScale)
-                        .offset(panOffset)
-                }
+                .scaleEffect(zoomScale, anchor: .center)
             }
             .coordinateSpace(name: "nodeGraph")
             .gesture(
                 MagnificationGesture()
                     .onChanged { value in
-                        // Zoom centered at cursor location
-                        let newScale = max(0.25, min(value, 3.0))
-                        let scaleChange = newScale / zoomScale
+                        if !isZooming {
+                            // Start of zoom gesture - lock base scale and anchor
+                            isZooming = true
+                            baseZoomScale = zoomScale
+                            zoomAnchor = currentMouseLocation
+                        }
 
-                        // Calculate the cursor position relative to the viewport
-                        let cursorX = lastMouseLocation.x
-                        let cursorY = lastMouseLocation.y
+                        let newZoomScale = max(0.25, min(baseZoomScale * value, 3.0))
+                        let scaleDelta = newZoomScale / zoomScale
 
-                        // Adjust node positions to zoom at cursor
+                        // Adjust node positions to zoom toward cursor
+                        let centerX = viewportSize.width / 2
+                        let centerY = viewportSize.height / 2
+                        let offsetX = (zoomAnchor.x - centerX) / zoomScale
+                        let offsetY = (zoomAnchor.y - centerY) / zoomScale
+
                         for i in nodes.indices {
-                            let dx = nodes[i].position.x - cursorX
-                            let dy = nodes[i].position.y - cursorY
+                            let oldX = nodes[i].position.x
+                            let oldY = nodes[i].position.y
                             nodes[i].position = CGPoint(
-                                x: cursorX + dx * scaleChange,
-                                y: cursorY + dy * scaleChange
+                                x: oldX - offsetX * (scaleDelta - 1),
+                                y: oldY - offsetY * (scaleDelta - 1)
                             )
                         }
 
-                        zoomScale = newScale
+                        zoomScale = newZoomScale
+                    }
+                    .onEnded { _ in
+                        isZooming = false
                     }
             )
             .onContinuousHover { phase in
                 switch phase {
                 case let .active(location):
-                    lastMouseLocation = location
+                    // Track current mouse location for zoom gesture
+                    currentMouseLocation = location
                     currentMousePosition = CGPoint(
-                        x: location.x - panOffset.width,
-                        y: location.y - panOffset.height
+                        x: (location.x - panOffset.width) / zoomScale,
+                        y: (location.y - panOffset.height) / zoomScale
                     )
                     // Check which connection is being hovered
                     updateHoveredConnection(at: location)
@@ -180,6 +197,7 @@ struct NodeGraphView: View {
             )
             .onAppear {
                 viewportSize = geometry.size
+                zoomAnchor = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
             }
             .onChange(of: geometry.size) {
                 viewportSize = geometry.size
@@ -216,18 +234,24 @@ struct NodeGraphView: View {
     }
 
     private func zoomIn() {
+        // Set zoom anchor to viewport center for button-based zoom
+        zoomAnchor = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
         withAnimation(.easeInOut(duration: 0.2)) {
             zoomScale = min(zoomScale * 1.2, 3.0)
         }
     }
 
     private func zoomOut() {
+        // Set zoom anchor to viewport center for button-based zoom
+        zoomAnchor = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
         withAnimation(.easeInOut(duration: 0.2)) {
             zoomScale = max(zoomScale / 1.2, 0.25)
         }
     }
 
     private func resetZoom() {
+        // Set zoom anchor to viewport center for button-based zoom
+        zoomAnchor = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
         withAnimation(.easeInOut(duration: 0.2)) {
             zoomScale = 1.0
         }
@@ -440,13 +464,20 @@ struct GridPattern: View {
 
     var body: some View {
         Canvas { context, size in
-            let columns = Int(size.width / spacing)
-            let rows = Int(size.height / spacing)
+            // Extend grid beyond viewport to account for panning/zooming
+            let margin: CGFloat = 2000
+            let startX = -margin
+            let startY = -margin
+            let endX = size.width + margin
+            let endY = size.height + margin
+
+            let columns = Int((endX - startX) / spacing)
+            let rows = Int((endY - startY) / spacing)
 
             for col in 0 ... columns {
                 for row in 0 ... rows {
-                    let x = CGFloat(col) * spacing
-                    let y = CGFloat(row) * spacing
+                    let x = startX + CGFloat(col) * spacing
+                    let y = startY + CGFloat(row) * spacing
                     let rect = CGRect(x: x - dotRadius, y: y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
                     context.fill(Path(ellipseIn: rect), with: .color(.gray.opacity(0.3)))
                 }
