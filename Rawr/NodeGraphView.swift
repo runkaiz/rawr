@@ -278,12 +278,13 @@ struct NodeGraphView: View {
         let viewportCenterX = viewportSize.width / 2
         let viewportCenterY = viewportSize.height / 2
 
-        // Move the view (gridOffset) to center nodes in viewport
+        // Move the view (gridOffset) to center nodes in viewport and reset zoom
         withAnimation(.easeInOut(duration: 0.3)) {
             gridOffset = CGPoint(
                 x: viewportCenterX - centerX,
                 y: viewportCenterY - centerY
             )
+            zoomScale = 1.0
         }
     }
 
