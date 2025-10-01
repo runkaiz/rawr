@@ -6,6 +6,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     case inversion = "Inversion"
     case exposure = "Exposure"
     case gamma = "Gamma"
+    case combination = "Combination"
     case preview = "Preview"
 
     public var icon: String {
@@ -14,6 +15,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .inversion: return "circle.lefthalf.filled"
         case .exposure: return "sun.max"
         case .gamma: return "slider.horizontal.3"
+        case .combination: return "square.stack.3d.down.right"
         case .preview: return "eye"
         }
     }
@@ -22,7 +24,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         switch self {
         case .imageInput: return 1
         case .preview: return 1
-        case .inversion, .exposure, .gamma: return nil
+        case .inversion, .exposure, .gamma, .combination: return nil
         }
     }
 }
@@ -56,8 +58,53 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             self.inputs = ["Input"]
             self.outputs = ["Output"]
             self.parameters = ["gamma": 2.2] // Default: sRGB standard gamma
+        case .combination:
+            self.inputs = ["Input A", "Input B"]
+            self.outputs = ["Output"]
         case .preview:
             self.inputs = ["Input"]
+        }
+    }
+
+    // Custom decoder to ensure nodes loaded from old documents have correct inputs/outputs
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(UUID.self, forKey: .id)
+        type = try container.decode(NodeType.self, forKey: .type)
+        position = try container.decode(CGPoint.self, forKey: .position)
+        imageURL = try container.decodeIfPresent(URL.self, forKey: .imageURL)
+        imageBookmark = try container.decodeIfPresent(Data.self, forKey: .imageBookmark)
+        parameters = try container.decodeIfPresent([String: Double].self, forKey: .parameters) ?? [:]
+
+        // Ignore decoded inputs/outputs and set expected values based on type (migration for old documents)
+        _ = try container.decodeIfPresent([String].self, forKey: .inputs)
+        _ = try container.decodeIfPresent([String].self, forKey: .outputs)
+
+        // Set expected inputs/outputs based on type
+        switch type {
+        case .imageInput:
+            outputs = ["Image"]
+        case .inversion:
+            inputs = ["Input"]
+            outputs = ["Output"]
+        case .exposure:
+            inputs = ["Input"]
+            outputs = ["Output"]
+            if parameters["stops"] == nil {
+                parameters["stops"] = 0.0
+            }
+        case .gamma:
+            inputs = ["Input"]
+            outputs = ["Output"]
+            if parameters["gamma"] == nil {
+                parameters["gamma"] = 2.2
+            }
+        case .combination:
+            inputs = ["Input A", "Input B"]
+            outputs = ["Output"]
+        case .preview:
+            inputs = ["Input"]
         }
     }
 }

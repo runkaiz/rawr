@@ -11,14 +11,18 @@ extension CGRect {
 struct InputDotPositionKey: PreferenceKey {
     static var defaultValue: [UUID: [String: CGPoint]] = [:]
     static func reduce(value: inout [UUID: [String: CGPoint]], nextValue: () -> [UUID: [String: CGPoint]]) {
-        value.merge(nextValue(), uniquingKeysWith: { $1 })
+        value.merge(nextValue(), uniquingKeysWith: { currentDict, newDict in
+            currentDict.merging(newDict, uniquingKeysWith: { $1 })
+        })
     }
 }
 
 struct OutputDotPositionKey: PreferenceKey {
     static var defaultValue: [UUID: [String: CGPoint]] = [:]
     static func reduce(value: inout [UUID: [String: CGPoint]], nextValue: () -> [UUID: [String: CGPoint]]) {
-        value.merge(nextValue(), uniquingKeysWith: { $1 })
+        value.merge(nextValue(), uniquingKeysWith: { currentDict, newDict in
+            currentDict.merging(newDict, uniquingKeysWith: { $1 })
+        })
     }
 }
 

@@ -26,6 +26,7 @@ public actor GraphExecutor {
             InversionProcessor(context: context),
             ExposureProcessor(context: context),
             GammaProcessor(context: context),
+            CombinationProcessor(context: context),
             PreviewProcessor()
         ]
         for processor in defaults {

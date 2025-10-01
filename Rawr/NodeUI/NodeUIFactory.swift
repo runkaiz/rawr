@@ -26,7 +26,7 @@ public class NodeUIFactory {
     @ViewBuilder
     public func buildUI(for node: NodeData, context: NodeUIContext) -> some View {
         if let descriptor = descriptors[node.type] {
-            ForEach(Array(descriptor.components.enumerated()), id: \.offset) { index, component in
+            ForEach(Array(descriptor.components.enumerated()), id: \.offset) { _, component in
                 AnyView(component.buildView(node: node, context: context))
             }
         } else {
@@ -52,7 +52,7 @@ public class NodeUIFactory {
                 SliderComponent(
                     parameterKey: "stops",
                     label: "Stops",
-                    range: -5...5,
+                    range: -5 ... 5,
                     step: 0.1,
                     format: "%.1f"
                 )
@@ -66,8 +66,8 @@ public class NodeUIFactory {
                 SliderComponent(
                     parameterKey: "gamma",
                     label: "Gamma",
-                    range: 0.5...4.0,
-                    step: 0.01,
+                    range: 0.5 ... 4.0,
+                    step: 0.1,
                     format: "%.2f"
                 )
             ]
