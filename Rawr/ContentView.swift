@@ -130,6 +130,7 @@ struct PreviewSectionView: View {
     @Binding var showExportDialog: Bool
     @Binding var exportFormat: ExportFormat
     @StateObject private var rawrKit = RawrKit()
+    @AppStorage("showLogs") private var showLogs = true
 
     var imageInputNode: NodeData? {
         document.flowDocument?.nodeGraph.nodes.first(where: { $0.type == .imageInput })
@@ -258,7 +259,9 @@ struct PreviewSectionView: View {
     var body: some View {
         HSplitView {
             imagePreviewsView
-            logsView
+            if showLogs {
+                logsView
+            }
         }
         .background(Color(NSColor.textBackgroundColor))
         .fileExporter(

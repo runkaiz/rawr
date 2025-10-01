@@ -16,6 +16,12 @@ struct RawrApp: App {
                 .frame(minWidth: 900, minHeight: 700)
                 .navigationTitle("Rawr Editor")
         }
+
+        #if os(macOS)
+        Settings {
+            SettingsView()
+        }
+        #endif
     }
 
     func openRAWImage() {

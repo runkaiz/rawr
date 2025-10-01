@@ -57,11 +57,19 @@ public struct SliderComponent: NodeUIComponent {
 
 /// Standard image picker component for image input nodes
 public struct ImagePickerComponent: NodeUIComponent {
-    @State private var showingImagePicker = false
-
     public init() {}
 
     public func build(node: NodeData, context: NodeUIContext) -> some View {
+        ImagePickerView(node: node, context: context)
+    }
+}
+
+private struct ImagePickerView: View {
+    let node: NodeData
+    let context: NodeUIContext
+    @State private var showingImagePicker = false
+
+    var body: some View {
         VStack(spacing: 4) {
             Button(action: {
                 showingImagePicker = true
