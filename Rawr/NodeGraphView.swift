@@ -41,10 +41,7 @@ struct NodeGraphView: View {
                             }
 
                             // Adjust position to account for zoom, pan, and grid offset
-                            let adjustedLocation = CGPoint(
-                                x: (location.x - panOffset.width) / zoomScale - gridOffset.x,
-                                y: (location.y - panOffset.height) / zoomScale - gridOffset.y
-                            )
+                            let adjustedLocation = viewportToGraphCoordinates(location, viewportSize: geometry.size)
                             let newNode = NodeData(
                                 type: nodeType,
                                 position: adjustedLocation
@@ -167,10 +164,8 @@ struct NodeGraphView: View {
                 case let .active(location):
                     // Track current mouse location for zoom gesture
                     currentMouseLocation = location
-                    currentMousePosition = CGPoint(
-                        x: (location.x - panOffset.width) / zoomScale - gridOffset.x,
-                        y: (location.y - panOffset.height) / zoomScale - gridOffset.y
-                    )
+                    // Convert viewport coordinates to "nodeGraph" coordinate space for connection lines
+                    currentMousePosition = viewportToNodeGraphSpace(location, viewportSize: viewportSize)
                     // Skip expensive hover detection when dragging nodes or panning
                     if !isDraggingNode && panOffset == .zero {
                         updateHoveredConnection(at: location)
@@ -261,6 +256,26 @@ struct NodeGraphView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             zoomScale = 1.0
         }
+    }
+
+    // Convert viewport coordinates to node position coordinates (for placing new nodes)
+    private func viewportToGraphCoordinates(_ point: CGPoint, viewportSize: CGSize) -> CGPoint {
+        let centerX = viewportSize.width / 2
+        let centerY = viewportSize.height / 2
+        return CGPoint(
+            x: (point.x - centerX) / zoomScale + centerX - gridOffset.x - panOffset.width / zoomScale,
+            y: (point.y - centerY) / zoomScale + centerY - gridOffset.y - panOffset.height / zoomScale
+        )
+    }
+
+    // Convert viewport coordinates to "nodeGraph" coordinate space (for connection lines)
+    private func viewportToNodeGraphSpace(_ point: CGPoint, viewportSize: CGSize) -> CGPoint {
+        let centerX = viewportSize.width / 2
+        let centerY = viewportSize.height / 2
+        return CGPoint(
+            x: (point.x - centerX) / zoomScale + centerX + gridOffset.x + panOffset.width / zoomScale,
+            y: (point.y - centerY) / zoomScale + centerY + gridOffset.y + panOffset.height / zoomScale
+        )
     }
 
     private func centerOnNodes() {
