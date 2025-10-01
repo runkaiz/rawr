@@ -1,212 +1,98 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Rawr is a macOS document-based SwiftUI application that is a node based RAW file editor. It targets both digital and film photographer and seeks to help them automate parts of their photo editting workflow.
+Rawr is a macOS SwiftUI node-based RAW file editor for digital and film photographers to automate photo editing workflows.
 
 ## Architecture
 
-### Core Principle: Rawr is just the frontend, RawrKit is the backend
+### Core Principle: RawrKit = Backend, Rawr = UI
 
-**CRITICAL**: All important logic must be implemented in RawrKit, not in the main app. The Rawr app is purely a UI layer.
+**CRITICAL**: All business logic goes in RawrKit. The Rawr app is purely a UI layer.
 
 ### Core Components
 
-- **RawrApp.swift**: Main app entry point using DocumentGroup pattern with minimum window size constraints (900x700)
-- **RawrDocument.swift**: Document model conforming to FileDocument protocol, handles custom `.flow` file type (`xyz.runkaizhang.flow`)
-- **ContentView.swift**: Main UI views - should ONLY handle presentation and user interaction
-- **RawrKit/**: Framework/library directory - ALL business logic goes here
-  - **RawrKit handles ALL important operations including:**
-    - Security-scoped resource access (via `loadRawFile()` in Source.swift)
-    - Security-scoped bookmark creation and resolution
-    - Image loading and processing
-    - File I/O operations
-    - RAW file decoding
-    - Image format conversions
-    - All computational/processing logic
-    - **Node graph execution with Metal GPU acceleration**
-  - **Published properties for UI binding:**
-    - `previewImage: CGImage?` - The loaded image preview for display
-    - `processedPreviewImage: CGImage?` - The processed image preview for display
-    - `isProcessing: Bool` - Processing state
-    - `logs: [LogEntry]` - Log entries for debugging
-    - `performance: PerformanceMetrics` - Performance metrics
-  - **Static utility methods:**
-    - `RawrKit.createSecurityBookmark(for: URL) -> Data?` - Creates security-scoped bookmark for file persistence
-  - **Instance methods:**
-    - `loadRawFile(from: URL) async -> Bool` - (Legacy) Loads and processes RAW files with security-scoped access
-    - `resolveBookmark(_: Data) -> URL?` - Resolves security-scoped bookmarks with logging
-    - `invertImage() async -> Bool` - (Legacy) Applies film negative inversion processing
-    - **`executeGraph(_: NodeGraph) async -> Bool`** - **PRIMARY API**: Executes the node graph and updates preview images
-    - `clearGraphCache()` - Clears the graph execution cache (call when graph structure changes)
-    - `clearSourceImageCache()` - Clears the source image cache (call when image URL changes)
-    - `clearProcessedPreview()` - Clears the processed preview image (call when preview node is disconnected)
-  - **DO NOT implement any of the following in the main app:**
-    - Direct file access with `NSImage(contentsOf:)` or `Data(contentsOf:)`
-    - Image processing or manipulation
-    - Security-scoped resource handling
-    - RAW file decoding
-    - Node graph execution or processing logic
-    - Any business logic
-  - **Main app responsibilities:**
-    - Display RawrKit's published images (previewImage, processedPreviewImage)
-    - Call `rawrKit.executeGraph(nodeGraph)` when graph changes
-    - Provide UI for node graph editing
-    - Pass NodeGraph to RawrKit for processing
-    - Bind to RawrKit's published properties for reactive UI updates
+- **RawrKit/** (in `Rawr/RawrKit/`): All business logic
+  - Security-scoped resource access, file I/O, RAW decoding
+  - Node graph execution with Metal GPU acceleration
+  - Image processing and computational operations
 
-### Document System
+- **Main App**: UI only
+  - `RawrApp.swift`: DocumentGroup entry point (min window: 900x700)
+  - `RawrDocument.swift`: FileDocument for `.flow` files
+  - `ContentView.swift`: UI presentation and interaction
+  - `NodeGraphView.swift`, `NodeView.swift`: Node editor UI
 
-The app uses a custom document type system:
-- File extension: `.exampletext` (as defined in Info.plist, though code references `.flow`)
-- UTType identifier: `xyz.runkaizhang.flow` (in code) vs `com.example.plain-text` (in Info.plist)
-- Document handling through SwiftUI's FileDocument protocol
+### RawrKit API
 
-## Development Commands
+**Published properties:**
+- `previewImage: CGImage?` - Before image
+- `processedPreviewImage: CGImage?` - After image
+- `isProcessing: Bool`, `logs: [LogEntry]`, `performance: PerformanceMetrics`
 
-### Building
-```bash
-# Build the app
-xcodebuild -scheme Rawr -configuration Debug build
+**Key methods:**
+- `executeGraph(_: NodeGraph) async -> Bool` - PRIMARY API for graph execution
+- `createSecurityBookmark(for: URL) -> Data?` - Static bookmark creator
+- `resolveBookmark(_: Data) -> URL?` - Bookmark resolver
+- `clearGraphCache()`, `clearSourceImageCache()`, `clearProcessedPreview()` - Cache management
 
-# Build for release
-xcodebuild -scheme Rawr -configuration Release build
-```
+**Main app must NOT:**
+- Directly access files (`NSImage(contentsOf:)`, `Data(contentsOf:)`)
+- Process images or handle security-scoped resources
+- Implement any business logic
 
-### Testing
-**IMPORTANT**: Always build the app after making code changes to verify there are no compilation errors. Use:
-```bash
-xcodebuild -scheme Rawr -configuration Debug build
-```
-Running the app will be up to the developer when testing any feature that requires interactivity.
-
-### Available Targets
-- `Rawr` - Main application
-- `RawrTests` - Unit tests (uses Swift Testing framework)
-- `RawrUITests` - UI tests
-
-## Key Configuration
+## Configuration
 
 - **Bundle ID**: `xyz.runkaizhang.Rawr`
+- **Document Type**: `.flow` files (`xyz.runkaizhang.flow`)
 - **Deployment Target**: macOS 15.4
-- **Swift Version**: 5.0
-- **Development Team**: C58CLY4K2U
-- **Testing Framework**: Swift Testing (new testing framework, not XCTest)
+- **Testing**: Swift Testing framework
 
-## Development Notes
+## Development
 
-### File Type Discrepancy
-There's an inconsistency between the document type definitions:
-- Code defines UTType as `xyz.runkaizhang.flow`
-- Info.plist defines it as `com.example.plain-text` with `.exampletext` extension
+**Build command:**
+```bash
+xcodebuild -scheme Rawr -configuration Debug build
+```
+Always build after code changes to verify compilation.
 
-### Metal GPU Acceleration
-All image processing operations use Metal compute shaders for GPU acceleration:
-- **Shaders/**: Individual shader files for each node type
-  - **InversionShader.metal**: Film negative inversion kernel
-  - **ExposureShader.metal**: Exposure adjustment kernel
-  - **GammaShader.metal**: Gamma correction kernel
-  - **CopyShader.metal**: Pass-through copy kernel
-- Images are processed as Metal textures (rgba16Float format for high precision)
-- Node processors execute Metal shaders through the command queue
+## Metal GPU Acceleration
 
-### Source Image Caching
-RawrKit implements source image caching to avoid redundant file loading:
-- **Cache behavior**: When an image is loaded through `ImageInputProcessor`, it's cached in RawrKit
-- **Cache lookup**: When `executeGraph()` needs the source image for the "Before" preview, it uses the cached version
-- **Cache invalidation**: The cache is automatically cleared when the image URL changes (via `.task(id: imageInputNode?.imageURL)` in ContentView)
-- **Benefits**: Reduces lag when connecting nodes by avoiding duplicate image loading and preview creation
-- **Implementation**:
-  - `ImageInputProcessor` calls `context.logger?.setCachedSourceImage()` after loading
-  - `executeGraph()` calls `getCachedSourceImage()` to retrieve the cached image
-  - UI calls `clearSourceImageCache()` when image URL changes
+All image processing uses Metal compute shaders (rgba16Float textures). Shaders in `RawrKit/Shaders/`:
+- `InversionShader.metal`, `ExposureShader.metal`, `GammaShader.metal`, `DenoiseShader.metal`, `CombinationShader.metal`
 
-### Node System Architecture
+**Source image caching**: `ImageInputProcessor` caches loaded images; `executeGraph()` reuses cached images for "Before" preview. Cache clears when image URL changes.
 
-The node system is fully implemented with a modular, extensible design:
+## Node System Architecture
 
-#### Core Components (all in RawrKit):
-1. **NodeProcessor.swift**: Protocol and base class for all node processors
-   - `NodeProcessor` protocol: Defines `process()` and `canProcess()` methods
-   - `MetalNodeProcessor`: Base class with Metal texture utilities
-   - `ImageData`: Runtime representation of images flowing through the graph (contains MTLTexture + CGImage + metadata)
-   - `ProcessingContext`: Shared Metal resources passed to all processors
+**Core components (all in RawrKit):**
 
-2. **GraphExecutor.swift**: Graph execution engine with dependency resolution
-   - Recursively executes nodes in dependency order
-   - Caches outputs to avoid redundant processing
-   - Handles connection traversal and data flow
+1. **NodeProcessor.swift**: Base protocol and classes
+   - `NodeProcessor` protocol, `MetalNodeProcessor` base class
+   - `ImageData`: Runtime image representation (MTLTexture + CGImage + metadata)
+   - `ProcessingContext`: Shared Metal resources
 
-3. **Nodes/**: Modular node processor implementations (each in its own file)
-   - **ImageInputProcessor.swift**: Loads images from disk with security-scoped access
-   - **InversionProcessor.swift**: Applies film negative inversion using Metal shader
-   - **PreviewProcessor.swift**: Terminal node that collects processed images
-   - Each processor is self-contained and handles its own Metal shader execution
+2. **GraphExecutor.swift**: Execution engine
+   - Dependency resolution, caching, connection traversal
 
-#### Adding New Nodes:
-1. Add new case to `NodeType` enum in NodeTypes.swift
-2. Create a new processor file in **Nodes/** directory:
-   ```swift
-   // Nodes/MyNewProcessor.swift
-   import Foundation
-   import Metal
+3. **Nodes/**: Processor implementations
+   - `ImageInputProcessor`, `InversionProcessor`, `ExposureProcessor`, `GammaProcessor`, `DenoiseProcessor`, `CombinationProcessor`, `PreviewProcessor`
+   - Each handles its own Metal shader execution
 
-   public class MyNewProcessor: MetalNodeProcessor {
-       public init() {
-           super.init(nodeType: .myNew)
-       }
+### Adding New Nodes
 
-       override public func process(inputs: [String: ImageData],
-                                   node: NodeData,
-                                   context: ProcessingContext) async -> [String: ImageData]? {
-           // Implement processing logic using Metal
-       }
-   }
-   ```
-3. Create a new shader file in **Shaders/** directory if needed (e.g., `MyNewShader.metal`)
-4. Register processor in GraphExecutor.registerDefaultProcessors()
+1. **NodeTypes.swift**: Add case to `NodeType` enum, icon, maxAllowedCount, inputs/outputs in `init()`, parameters, migration logic in `init(from:)`
+2. **Nodes/MyNewProcessor.swift**: Create processor class extending `MetalNodeProcessor`, load shader in `init()`, implement `process()`
+3. **Shaders/MyNewShader.metal**: Create Metal kernel function
+4. **GraphExecutor.defaultProcessors()**: Register processor
+5. **NodeUIFactory.registerDefaultDescriptors()**: Add UI descriptor with `SliderComponent`, `ImagePickerComponent`, or empty descriptor
 
-#### Data Flow:
-1. UI calls `rawrKit.executeGraph(nodeGraph)`
-2. GraphExecutor finds Preview nodes and traverses backward
-3. Each node's processor is executed with inputs from upstream nodes
-4. ImageData (Metal textures + CGImages) flows through connections
-5. Results are cached to avoid re-execution
-6. Final images are published to UI via `previewImage` and `processedPreviewImage`
+**Data flow**: UI calls `executeGraph()` → GraphExecutor traverses from Preview nodes backward → Processors execute with cached results → Images published to UI
 
 ## Implementation Guidelines
 
-### When implementing new features:
-
-1. **Always consider RawrKit first**: Ask yourself "Should this logic be in RawrKit?" The answer is almost always YES if it involves:
-   - File operations
-   - Image processing
-   - Computation
-   - State management of image data
-   - Security-scoped resources
-
-2. **RawrKit API pattern**:
-   ```swift
-   // In RawrKit: Expose published properties
-   @Published public var someResult: CGImage?
-
-   // In RawrKit: Provide async methods
-   public func processImage(from url: URL) async -> Bool
-
-   // In Main App: Create RawrKit instance
-   @StateObject private var rawrKit = RawrKit()
-
-   // In Main App: Call methods and display results
-   .task {
-       await rawrKit.loadRawFile(from: url)
-   }
-   Image(nsImage: NSImage(cgImage: rawrKit.previewImage, ...))
-   ```
-
-3. **Always update CLAUDE.md** when new functionality is added to RawrKit, documenting:
-   - New public methods
-   - New published properties
-   - Expected usage patterns
-- Prioritize using native SwiftUI components as much as possible.
+- **RawrKit first**: File ops, image processing, computation, state management, security-scoped resources go in RawrKit
+- **UI pattern**: `@StateObject var rawrKit = RawrKit()` → call `executeGraph()` → bind to published properties
+- **Update CLAUDE.md** when adding RawrKit functionality

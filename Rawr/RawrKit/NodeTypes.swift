@@ -6,6 +6,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     case inversion = "Inversion"
     case exposure = "Exposure"
     case gamma = "Gamma"
+    case denoise = "Denoise"
     case combination = "Combination"
     case preview = "Preview"
 
@@ -15,6 +16,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .inversion: return "circle.lefthalf.filled"
         case .exposure: return "sun.max"
         case .gamma: return "slider.horizontal.3"
+        case .denoise: return "waveform.path"
         case .combination: return "square.stack.3d.down.right"
         case .preview: return "eye"
         }
@@ -24,7 +26,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         switch self {
         case .imageInput: return 1
         case .preview: return 1
-        case .inversion, .exposure, .gamma, .combination: return nil
+        case .inversion, .exposure, .gamma, .denoise, .combination: return nil
         }
     }
 }
@@ -58,6 +60,10 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             self.inputs = ["Input"]
             self.outputs = ["Output"]
             self.parameters = ["gamma": 2.2] // Default: sRGB standard gamma
+        case .denoise:
+            self.inputs = ["Input"]
+            self.outputs = ["Output"]
+            self.parameters = ["strength": 1.0, "colorSigma": 0.2] // Default: moderate denoising
         case .combination:
             self.inputs = ["Input A", "Input B"]
             self.outputs = ["Output"]
@@ -99,6 +105,15 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             outputs = ["Output"]
             if parameters["gamma"] == nil {
                 parameters["gamma"] = 2.2
+            }
+        case .denoise:
+            inputs = ["Input"]
+            outputs = ["Output"]
+            if parameters["strength"] == nil {
+                parameters["strength"] = 1.0
+            }
+            if parameters["colorSigma"] == nil {
+                parameters["colorSigma"] = 0.2
             }
         case .combination:
             inputs = ["Input A", "Input B"]

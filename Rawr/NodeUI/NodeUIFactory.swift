@@ -73,6 +73,27 @@ public class NodeUIFactory {
             ]
         ))
 
+        // Denoise Node
+        register(descriptor: NodeUIDescriptor(
+            nodeType: .denoise,
+            components: [
+                SliderComponent(
+                    parameterKey: "strength",
+                    label: "Strength",
+                    range: 0.5 ... 3.0,
+                    step: 0.1,
+                    format: "%.1f"
+                ),
+                SliderComponent(
+                    parameterKey: "colorSigma",
+                    label: "Color Sigma",
+                    range: 0.05 ... 0.5,
+                    step: 0.05,
+                    format: "%.2f"
+                )
+            ]
+        ))
+
         // Inversion Node (no custom UI)
         register(descriptor: NodeUIDescriptor.empty(for: .inversion))
 
