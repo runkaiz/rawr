@@ -32,11 +32,13 @@ struct NodeView: View {
     let onDelete: () -> Void
     let onPositionChange: (CGPoint) -> Void
     let onParameterChange: ([String: Double]) -> Void
+    let onDragStateChange: (Bool) -> Void
     let isConnecting: Bool
 
     @State private var hoveredInput: String?
     @State private var hoveredOutput: String?
-    @State private var dragStartPosition: CGPoint?
+    @State private var dragOffset: CGSize = .zero
+    @State private var isDragging: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -56,19 +58,23 @@ struct NodeView: View {
             .gesture(
                 DragGesture(coordinateSpace: .named("nodeGraph"))
                     .onChanged { value in
-                        if dragStartPosition == nil {
-                            dragStartPosition = node.position
+                        if !isDragging {
+                            isDragging = true
+                            onDragStateChange(true)
                         }
-                        if let startPos = dragStartPosition {
-                            let newPosition = CGPoint(
-                                x: startPos.x + value.translation.width,
-                                y: startPos.y + value.translation.height
-                            )
-                            onPositionChange(newPosition)
-                        }
+                        // Use local state for drag offset to avoid triggering parent re-renders
+                        dragOffset = value.translation
                     }
-                    .onEnded { _ in
-                        dragStartPosition = nil
+                    .onEnded { value in
+                        // Only update binding once at the end of drag
+                        let newPosition = CGPoint(
+                            x: node.position.x + value.translation.width,
+                            y: node.position.y + value.translation.height
+                        )
+                        onPositionChange(newPosition)
+                        dragOffset = .zero
+                        isDragging = false
+                        onDragStateChange(false)
                     }
             )
 
@@ -178,6 +184,7 @@ struct NodeView: View {
         )
         .shadow(radius: 2)
         .contentShape(RoundedRectangle(cornerRadius: 8))
+        .offset(dragOffset)
         .contextMenu {
             Button("Delete", role: .destructive) {
                 onDelete()

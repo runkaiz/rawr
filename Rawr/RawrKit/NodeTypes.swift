@@ -27,7 +27,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     }
 }
 
-public struct NodeData: Identifiable, Codable {
+public struct NodeData: Identifiable, Codable, Equatable, Hashable {
     public let id: UUID
     public var type: NodeType
     public var position: CGPoint

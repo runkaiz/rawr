@@ -21,6 +21,7 @@ struct NodeGraphView: View {
     @State private var isZooming: Bool = false
     @State private var currentMouseLocation: CGPoint = .zero
     @State private var gridOffset: CGPoint = .zero
+    @State private var isDraggingNode: Bool = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -170,8 +171,10 @@ struct NodeGraphView: View {
                         x: (location.x - panOffset.width) / zoomScale - gridOffset.x,
                         y: (location.y - panOffset.height) / zoomScale - gridOffset.y
                     )
-                    // Check which connection is being hovered
-                    updateHoveredConnection(at: location)
+                    // Skip expensive hover detection when dragging nodes or panning
+                    if !isDraggingNode && panOffset == .zero {
+                        updateHoveredConnection(at: location)
+                    }
                 case .ended:
                     hoveredConnectionId = nil
                 }
@@ -306,7 +309,8 @@ struct NodeGraphView: View {
     }
 
     private func isPointNearCurve(_ point: CGPoint, from: CGPoint, to: CGPoint, threshold: CGFloat = 10) -> Bool {
-        let samples = 50
+        // Reduced sample count for better performance (20 samples is sufficient for accurate detection)
+        let samples = 20
         for i in 0 ... samples {
             let t = CGFloat(i) / CGFloat(samples)
             let curvePoint = pointOnCurve(t: t, from: from, to: to)
@@ -394,6 +398,9 @@ struct NodeGraphView: View {
                 if let index = nodes.firstIndex(where: { $0.id == node.id }) {
                     nodes[index].parameters = updatedParameters
                 }
+            },
+            onDragStateChange: { isDragging in
+                isDraggingNode = isDragging
             },
             isConnecting: connectingFrom != nil
         )
