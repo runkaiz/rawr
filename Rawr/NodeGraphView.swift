@@ -39,10 +39,10 @@ struct NodeGraphView: View {
                                 }
                             }
 
-                            // Adjust position to account for zoom and pan
+                            // Adjust position to account for zoom, pan, and grid offset
                             let adjustedLocation = CGPoint(
-                                x: (location.x - panOffset.width) / zoomScale,
-                                y: (location.y - panOffset.height) / zoomScale
+                                x: (location.x - panOffset.width) / zoomScale - gridOffset.x,
+                                y: (location.y - panOffset.height) / zoomScale - gridOffset.y
                             )
                             let newNode = NodeData(
                                 type: nodeType,
@@ -70,18 +70,7 @@ struct NodeGraphView: View {
                                 }
                             }
                             .onEnded { _ in
-                                // Apply the pan offset to all nodes
-                                // panOffset is applied before scale, so it gets scaled by zoomScale
-                                // To get the actual movement in node space, divide by zoomScale
-                                for i in nodes.indices {
-                                    nodes[i].position = CGPoint(
-                                        x: nodes[i].position.x + panOffset.width / zoomScale,
-                                        y: nodes[i].position.y + panOffset.height / zoomScale
-                                    )
-                                }
-
-                                // Apply pan offset to grid - same logic as nodes
-                                // Grid also applies panOffset before scale, so same division
+                                // Apply the pan offset to gridOffset (which moves both grid and nodes)
                                 gridOffset = CGPoint(
                                     x: gridOffset.x + panOffset.width / zoomScale,
                                     y: gridOffset.y + panOffset.height / zoomScale
@@ -136,7 +125,7 @@ struct NodeGraphView: View {
                     // Nodes
                     ForEach(nodes) { node in
                         nodeView(for: node)
-                            .offset(x: panOffset.width / zoomScale, y: panOffset.height / zoomScale)
+                            .offset(x: gridOffset.x + panOffset.width / zoomScale, y: gridOffset.y + panOffset.height / zoomScale)
                     }
                 }
                 .coordinateSpace(name: "nodeGraph")
@@ -155,23 +144,12 @@ struct NodeGraphView: View {
                         let newZoomScale = max(0.25, min(baseZoomScale * value, 3.0))
                         let scaleDelta = newZoomScale / zoomScale
 
-                        // Adjust node positions and grid offset to zoom toward cursor
+                        // Adjust grid offset to zoom toward cursor (this moves both grid and nodes)
                         let centerX = viewportSize.width / 2
                         let centerY = viewportSize.height / 2
                         let offsetX = (zoomAnchor.x - centerX) / zoomScale
                         let offsetY = (zoomAnchor.y - centerY) / zoomScale
 
-                        // Update node positions
-                        for i in nodes.indices {
-                            let oldX = nodes[i].position.x
-                            let oldY = nodes[i].position.y
-                            nodes[i].position = CGPoint(
-                                x: oldX - offsetX * (scaleDelta - 1),
-                                y: oldY - offsetY * (scaleDelta - 1)
-                            )
-                        }
-
-                        // Update grid offset with the same transformation
                         gridOffset = CGPoint(
                             x: gridOffset.x - offsetX * (scaleDelta - 1),
                             y: gridOffset.y - offsetY * (scaleDelta - 1)
@@ -189,8 +167,8 @@ struct NodeGraphView: View {
                     // Track current mouse location for zoom gesture
                     currentMouseLocation = location
                     currentMousePosition = CGPoint(
-                        x: (location.x - panOffset.width) / zoomScale,
-                        y: (location.y - panOffset.height) / zoomScale
+                        x: (location.x - panOffset.width) / zoomScale - gridOffset.x,
+                        y: (location.y - panOffset.height) / zoomScale - gridOffset.y
                     )
                     // Check which connection is being hovered
                     updateHoveredConnection(at: location)
