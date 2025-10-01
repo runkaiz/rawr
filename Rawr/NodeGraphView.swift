@@ -95,7 +95,8 @@ struct NodeGraphView: View {
                 // Dotted grid - outside scaled content, positioned manually
                 ZStack {
                     GridPattern(size: geometry.size, zoom: 1.0, panOffset: .zero, nodes: nodes)
-                        .position(x: gridOffset.x, y: gridOffset.y)
+                        .frame(width: geometry.size.width * 3, height: geometry.size.height * 3)
+                        .position(x: geometry.size.width / 2 + gridOffset.x, y: geometry.size.height / 2 + gridOffset.y)
                         .offset(x: panOffset.width / zoomScale, y: panOffset.height / zoomScale)
                 }
                 .scaleEffect(zoomScale, anchor: .center)
@@ -221,7 +222,7 @@ struct NodeGraphView: View {
             .onAppear {
                 viewportSize = geometry.size
                 zoomAnchor = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-                gridOffset = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                gridOffset = .zero
             }
             .onChange(of: geometry.size) {
                 viewportSize = geometry.size
