@@ -39,9 +39,28 @@ struct ContentView: View {
 struct EditorView: View {
     @Binding var document: RawrDocument
     @State private var selectedNodeType: NodeType?
+    @State private var showExportDialog = false
+    @State private var exportFormat: ExportFormat = .tiff
 
     var hasPreviewNode: Bool {
         document.flowDocument?.nodeGraph.nodes.contains(where: { $0.type == .preview }) ?? false
+    }
+
+    var previewNode: NodeData? {
+        document.flowDocument?.nodeGraph.nodes.first(where: { $0.type == .preview })
+    }
+
+    var isPreviewNodeConnected: Bool {
+        guard let nodeGraph = document.flowDocument?.nodeGraph,
+              let previewNode = previewNode
+        else {
+            return false
+        }
+        return nodeGraph.connections.contains(where: { $0.toNodeId == previewNode.id })
+    }
+
+    var canExport: Bool {
+        isPreviewNodeConnected
     }
 
     var body: some View {
@@ -82,8 +101,23 @@ struct EditorView: View {
             if hasPreviewNode {
                 Divider()
 
-                PreviewSectionView(document: $document)
-                    .frame(height: 300)
+                PreviewSectionView(
+                    document: $document,
+                    showExportDialog: $showExportDialog,
+                    exportFormat: $exportFormat
+                )
+                .frame(height: 300)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showExportDialog = true
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .disabled(!canExport)
+                .help(canExport ? "Export processed image at full resolution" : "Connect nodes to enable export")
             }
         }
     }
@@ -93,9 +127,9 @@ struct EditorView: View {
 
 struct PreviewSectionView: View {
     @Binding var document: RawrDocument
+    @Binding var showExportDialog: Bool
+    @Binding var exportFormat: ExportFormat
     @StateObject private var rawrKit = RawrKit()
-    @State private var showExportDialog = false
-    @State private var exportFormat: ExportFormat = .tiff
 
     var imageInputNode: NodeData? {
         document.flowDocument?.nodeGraph.nodes.first(where: { $0.type == .imageInput })
@@ -114,10 +148,6 @@ struct PreviewSectionView: View {
         return nodeGraph.connections.contains(where: { $0.toNodeId == previewNode.id })
     }
 
-    var canExport: Bool {
-        isPreviewNodeConnected
-    }
-
     private var imagePreviewsView: some View {
         HStack(spacing: 0) {
             beforePreviewView
@@ -129,21 +159,11 @@ struct PreviewSectionView: View {
 
     private var beforePreviewView: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Before")
-                    .font(.headline)
-
-                Spacer()
-
-                // Invisible spacer to match "After" header height
-                Button(action: {}) {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-                .hidden()
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity)
-            .background(Color(NSColor.controlBackgroundColor))
+            Text("Before")
+                .font(.headline)
+                .padding(8)
+                .frame(maxWidth: .infinity)
+                .background(Color(NSColor.controlBackgroundColor))
 
             if let previewImage = rawrKit.previewImage {
                 let nsImage = NSImage(cgImage: previewImage, size: NSSize(width: previewImage.width, height: previewImage.height))
@@ -161,22 +181,11 @@ struct PreviewSectionView: View {
 
     private var afterPreviewView: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("After")
-                    .font(.headline)
-
-                Spacer()
-
-                Button(action: { showExportDialog = true }) {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-                .disabled(!canExport)
-                .help(canExport ? "Export processed image at full resolution" : "Connect nodes to enable export")
-                .animation(.none, value: canExport) // Prevent flashing
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity)
-            .background(Color(NSColor.controlBackgroundColor))
+            Text("After")
+                .font(.headline)
+                .padding(8)
+                .frame(maxWidth: .infinity)
+                .background(Color(NSColor.controlBackgroundColor))
 
             if isPreviewNodeConnected,
                let processedPreview = rawrKit.processedPreviewImage

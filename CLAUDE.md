@@ -206,3 +206,4 @@ The node system is fully implemented with a modular, extensible design:
    - New public methods
    - New published properties
    - Expected usage patterns
+- Prioritize using native SwiftUI components as much as possible.

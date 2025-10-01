@@ -428,13 +428,35 @@ public class RawrKit: ObservableObject {
                 return nil
             }
 
+            // Check for orientation metadata
+            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
+            let orientation = properties?[kCGImagePropertyOrientation] as? UInt32 ?? CGImagePropertyOrientation.up.rawValue
+            log("Image orientation from metadata: \(orientation)")
+
             let options: [CFString: Any] = [
                 kCGImageSourceShouldAllowFloat: true,
                 kCGImageSourceShouldCache: false
             ]
 
-            guard let fullResImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
+            guard let rawImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
                 return nil
+            }
+
+            // Apply orientation correction
+            let fullResImage: CGImage
+            if orientation != CGImagePropertyOrientation.up.rawValue {
+                log("Applying orientation correction")
+                let ciImage = CIImage(cgImage: rawImage)
+                let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(orientation))
+
+                if let correctedImage = ciContext.createCGImage(orientedCIImage, from: orientedCIImage.extent) {
+                    fullResImage = correctedImage
+                } else {
+                    log("Failed to apply orientation correction, using original", level: .warning)
+                    fullResImage = rawImage
+                }
+            } else {
+                fullResImage = rawImage
             }
 
             // Scale to preview resolution unless in full resolution mode
