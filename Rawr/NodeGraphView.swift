@@ -122,9 +122,9 @@ struct NodeGraphView: View {
                             .offset(panOffset)
                     }
                 }
+                .coordinateSpace(name: "nodeGraph")
                 .scaleEffect(zoomScale, anchor: .center)
             }
-            .coordinateSpace(name: "nodeGraph")
             .gesture(
                 MagnificationGesture()
                     .onChanged { value in
