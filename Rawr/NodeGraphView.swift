@@ -273,8 +273,8 @@ struct NodeGraphView: View {
         let centerX = viewportSize.width / 2
         let centerY = viewportSize.height / 2
         return CGPoint(
-            x: (point.x - centerX) / zoomScale + centerX + gridOffset.x + panOffset.width / zoomScale,
-            y: (point.y - centerY) / zoomScale + centerY + gridOffset.y + panOffset.height / zoomScale
+            x: (point.x - centerX) / zoomScale + centerX,
+            y: (point.y - centerY) / zoomScale + centerY
         )
     }
 
