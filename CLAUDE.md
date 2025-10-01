@@ -76,8 +76,11 @@ xcodebuild -scheme Rawr -configuration Release build
 ```
 
 ### Testing
-Building for compilation errors is allowed, but running the app will be up to the developer when testing any feature that requires interactivity.
+**IMPORTANT**: Always build the app after making code changes to verify there are no compilation errors. Use:
+```bash
+xcodebuild -scheme Rawr -configuration Debug build
 ```
+Running the app will be up to the developer when testing any feature that requires interactivity.
 
 ### Available Targets
 - `Rawr` - Main application
