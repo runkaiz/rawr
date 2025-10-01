@@ -20,6 +20,7 @@ struct NodeGraphView: View {
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var isZooming: Bool = false
     @State private var currentMouseLocation: CGPoint = .zero
+    @State private var gridOffset: CGPoint = .zero
 
     var body: some View {
         GeometryReader { geometry in
@@ -70,22 +71,37 @@ struct NodeGraphView: View {
                             }
                             .onEnded { _ in
                                 // Apply the pan offset to all nodes
+                                // panOffset is applied before scale, so it gets scaled by zoomScale
+                                // To get the actual movement in node space, divide by zoomScale
                                 for i in nodes.indices {
                                     nodes[i].position = CGPoint(
                                         x: nodes[i].position.x + panOffset.width / zoomScale,
                                         y: nodes[i].position.y + panOffset.height / zoomScale
                                     )
                                 }
+
+                                // Apply pan offset to grid - same logic as nodes
+                                // Grid also applies panOffset before scale, so same division
+                                gridOffset = CGPoint(
+                                    x: gridOffset.x + panOffset.width / zoomScale,
+                                    y: gridOffset.y + panOffset.height / zoomScale
+                                )
+
                                 panOffset = .zero
                                 dragStart = nil
                             }
                     )
 
+                // Dotted grid - outside scaled content, positioned manually
+                ZStack {
+                    GridPattern(size: geometry.size, zoom: 1.0, panOffset: .zero, nodes: nodes)
+                        .position(x: gridOffset.x, y: gridOffset.y)
+                        .offset(x: panOffset.width / zoomScale, y: panOffset.height / zoomScale)
+                }
+                .scaleEffect(zoomScale, anchor: .center)
+
                 // Scaled content layer
                 ZStack {
-                    // Dotted grid
-                    GridPattern(size: geometry.size)
-
                     // Connection lines
                     ForEach(connections) { connection in
                         if let fromPos = outputDotPositions[connection.fromNodeId]?[connection.fromOutput],
@@ -119,7 +135,7 @@ struct NodeGraphView: View {
                     // Nodes
                     ForEach(nodes) { node in
                         nodeView(for: node)
-                            .offset(panOffset)
+                            .offset(x: panOffset.width / zoomScale, y: panOffset.height / zoomScale)
                     }
                 }
                 .coordinateSpace(name: "nodeGraph")
@@ -138,12 +154,13 @@ struct NodeGraphView: View {
                         let newZoomScale = max(0.25, min(baseZoomScale * value, 3.0))
                         let scaleDelta = newZoomScale / zoomScale
 
-                        // Adjust node positions to zoom toward cursor
+                        // Adjust node positions and grid offset to zoom toward cursor
                         let centerX = viewportSize.width / 2
                         let centerY = viewportSize.height / 2
                         let offsetX = (zoomAnchor.x - centerX) / zoomScale
                         let offsetY = (zoomAnchor.y - centerY) / zoomScale
 
+                        // Update node positions
                         for i in nodes.indices {
                             let oldX = nodes[i].position.x
                             let oldY = nodes[i].position.y
@@ -152,6 +169,12 @@ struct NodeGraphView: View {
                                 y: oldY - offsetY * (scaleDelta - 1)
                             )
                         }
+
+                        // Update grid offset with the same transformation
+                        gridOffset = CGPoint(
+                            x: gridOffset.x - offsetX * (scaleDelta - 1),
+                            y: gridOffset.y - offsetY * (scaleDelta - 1)
+                        )
 
                         zoomScale = newZoomScale
                     }
@@ -198,6 +221,7 @@ struct NodeGraphView: View {
             .onAppear {
                 viewportSize = geometry.size
                 zoomAnchor = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                gridOffset = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
             }
             .onChange(of: geometry.size) {
                 viewportSize = geometry.size
@@ -459,6 +483,9 @@ struct ConnectionLine: View {
 
 struct GridPattern: View {
     let size: CGSize
+    let zoom: CGFloat
+    let panOffset: CGSize
+    let nodes: [NodeData]
     let spacing: CGFloat = 20
     let dotRadius: CGFloat = 1.5
 
