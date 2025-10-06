@@ -45,6 +45,14 @@ public class NodeUIFactory {
             ]
         ))
 
+        // Folder Input Node
+        register(descriptor: NodeUIDescriptor(
+            nodeType: .folderInput,
+            components: [
+                FolderPickerComponent()
+            ]
+        ))
+
         // Exposure Node
         register(descriptor: NodeUIDescriptor(
             nodeType: .exposure,

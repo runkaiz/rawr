@@ -374,26 +374,48 @@ public class RawrKit: ObservableObject {
         executionTask = nil
     }
 
-    /// Extract the source image from the graph's Image Input node
+    /// Extract the source image from the graph's Image Input or Folder Input node
     private func getSourceImage(from nodeGraph: NodeGraph) async -> CGImage? {
-        guard let imageInputNode = nodeGraph.nodes.first(where: { $0.type == .imageInput }) else {
-            return nil
+        // Check for Image Input node first
+        if let imageInputNode = nodeGraph.nodes.first(where: { $0.type == .imageInput }) {
+            // Determine URL
+            let urlToLoad: URL?
+            if let bookmarkData = imageInputNode.imageBookmark {
+                urlToLoad = resolveBookmark(bookmarkData)
+            } else {
+                urlToLoad = imageInputNode.imageURL
+            }
+
+            guard let url = urlToLoad else {
+                return nil
+            }
+
+            // Use cached source image if available
+            return await getCachedSourceImage(for: url)
         }
 
-        // Determine URL
-        let urlToLoad: URL?
-        if let bookmarkData = imageInputNode.imageBookmark {
-            urlToLoad = resolveBookmark(bookmarkData)
-        } else {
-            urlToLoad = imageInputNode.imageURL
+        // Check for Folder Input node
+        if let folderInputNode = nodeGraph.nodes.first(where: { $0.type == .folderInput }) {
+            // Determine folder URL
+            let folderURL: URL?
+            if let bookmarkData = folderInputNode.imageBookmark {
+                folderURL = resolveBookmark(bookmarkData)
+            } else {
+                folderURL = folderInputNode.imageURL
+            }
+
+            guard let folder = folderURL else {
+                return nil
+            }
+
+            // Get selected image index from parameters
+            let selectedIndex = Int(folderInputNode.parameters["selectedIndex"] ?? 0.0)
+
+            // Load image from folder with proper security scoping
+            return await loadImageFromFolder(folderURL: folder, selectedIndex: selectedIndex)
         }
 
-        guard let url = urlToLoad else {
-            return nil
-        }
-
-        // Use cached source image if available
-        return await getCachedSourceImage(for: url)
+        return nil
     }
 
     /// Clear the graph execution cache (call when graph structure changes)
@@ -523,6 +545,138 @@ public class RawrKit: ObservableObject {
     public func clearProcessedPreview() {
         Task { @MainActor in
             processedPreviewImage = nil
+        }
+    }
+
+    // MARK: - Folder Scanning
+
+    private var cachedFolderImageURLs: [URL]?
+    private var cachedFolderURL: URL?
+
+    /// Scan a folder for supported image files
+    /// Returns sorted array of image URLs (alphabetical order)
+    internal func scanFolderForImages(folderURL: URL) async -> [URL]? {
+        // Check cache first
+        if let cachedURL = cachedFolderURL, cachedURL == folderURL, let cached = cachedFolderImageURLs {
+            log("Using cached folder scan for: \(folderURL.lastPathComponent)")
+            return cached
+        }
+
+        log("Scanning folder: \(folderURL.lastPathComponent)")
+
+        let gotAccess = folderURL.startAccessingSecurityScopedResource()
+        defer {
+            if gotAccess {
+                folderURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        do {
+            let fileManager = FileManager.default
+            let contents = try fileManager.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: [.isRegularFileKey], options: .skipsHiddenFiles)
+
+            // Filter for supported image types
+            let supportedExtensions = ["jpg", "jpeg", "png", "tiff", "tif", "dng", "cr2", "cr3", "nef", "arw", "orf", "rw2", "raf", "raw"]
+            let imageURLs = contents.filter { url in
+                let ext = url.pathExtension.lowercased()
+                return supportedExtensions.contains(ext)
+            }.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+
+            log("Found \(imageURLs.count) images in folder")
+
+            // Cache the results
+            cachedFolderImageURLs = imageURLs
+            cachedFolderURL = folderURL
+
+            return imageURLs
+        } catch {
+            log("Failed to scan folder: \(error.localizedDescription)", level: .error)
+            return nil
+        }
+    }
+
+    /// Clear the folder scan cache (call when folder URL changes)
+    public func clearFolderCache() {
+        cachedFolderImageURLs = nil
+        cachedFolderURL = nil
+        log("Folder cache cleared")
+    }
+
+    /// Load an image from a folder at the specified index
+    /// Maintains folder security-scoped access throughout the operation
+    public func loadImageFromFolder(folderURL: URL, selectedIndex: Int) async -> CGImage? {
+        // Start security-scoped access to the folder
+        let gotAccess = folderURL.startAccessingSecurityScopedResource()
+        defer {
+            if gotAccess {
+                folderURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        // Get image URLs from folder
+        guard let imageURLs = await scanFolderForImages(folderURL: folderURL) else {
+            log("Failed to scan folder for images", level: .error)
+            return nil
+        }
+
+        guard !imageURLs.isEmpty else {
+            log("No images found in folder", level: .error)
+            return nil
+        }
+
+        // Clamp selected index to valid range
+        let validIndex = min(max(0, selectedIndex), imageURLs.count - 1)
+        let selectedImageURL = imageURLs[validIndex]
+
+        log("Loading image \(validIndex + 1) of \(imageURLs.count) from folder")
+
+        // Load the image while folder access is active
+        do {
+            let imageData = try Data(contentsOf: selectedImageURL)
+            guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else {
+                log("Failed to create image source from data", level: .error)
+                return nil
+            }
+
+            // Check for orientation metadata
+            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
+            let orientation = properties?[kCGImagePropertyOrientation] as? UInt32 ?? CGImagePropertyOrientation.up.rawValue
+
+            let options: [CFString: Any] = [
+                kCGImageSourceShouldAllowFloat: true,
+                kCGImageSourceShouldCache: false
+            ]
+
+            guard let rawImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
+                log("Failed to create CGImage from source", level: .error)
+                return nil
+            }
+
+            // Apply orientation correction if needed
+            let orientedImage: CGImage
+            if orientation != CGImagePropertyOrientation.up.rawValue {
+                log("Applying orientation correction")
+                let ciImage = CIImage(cgImage: rawImage)
+                let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(orientation))
+
+                if let correctedImage = ciContext.createCGImage(orientedCIImage, from: orientedCIImage.extent) {
+                    orientedImage = correctedImage
+                } else {
+                    log("Failed to apply orientation correction, using original", level: .warning)
+                    orientedImage = rawImage
+                }
+            } else {
+                orientedImage = rawImage
+            }
+
+            // Scale to preview resolution (1920px max dimension) for performance
+            let scaledImage = scaleToPreviewResolution(orientedImage)
+            log("Loaded and scaled image from folder: \(scaledImage.width)x\(scaledImage.height)")
+
+            return scaledImage
+        } catch {
+            log("Failed to load image from folder: \(error.localizedDescription)", level: .error)
+            return nil
         }
     }
 

@@ -44,6 +44,20 @@ struct NodePaletteView: View {
     }
 
     private func isNodeDisabled(_ nodeType: NodeType) -> Bool {
+        // Check for mutual exclusivity: only one of imageInput or folderInput can exist
+        if nodeType == .imageInput {
+            let hasFolderInput = nodes.contains { $0.type == .folderInput }
+            if hasFolderInput {
+                return true
+            }
+        } else if nodeType == .folderInput {
+            let hasImageInput = nodes.contains { $0.type == .imageInput }
+            if hasImageInput {
+                return true
+            }
+        }
+
+        // Check individual node type limits
         guard let maxCount = nodeType.maxAllowedCount else {
             return false
         }

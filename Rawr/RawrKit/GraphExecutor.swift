@@ -23,6 +23,7 @@ public actor GraphExecutor {
         var dict: [NodeType: NodeProcessor] = [:]
         let defaults: [NodeProcessor] = [
             ImageInputProcessor(),
+            FolderInputProcessor(),
             InversionProcessor(context: context),
             ExposureProcessor(context: context),
             GammaProcessor(context: context),

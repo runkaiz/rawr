@@ -3,6 +3,7 @@ import SwiftUI
 
 public enum NodeType: String, Codable, CaseIterable, Hashable {
     case imageInput = "Image Input"
+    case folderInput = "Folder Input"
     case inversion = "Inversion"
     case exposure = "Exposure"
     case gamma = "Gamma"
@@ -14,6 +15,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     public var icon: String {
         switch self {
         case .imageInput: return "photo"
+        case .folderInput: return "folder"
         case .inversion: return "circle.lefthalf.filled"
         case .exposure: return "sun.max"
         case .gamma: return "slider.horizontal.3"
@@ -27,6 +29,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     public var maxAllowedCount: Int? {
         switch self {
         case .imageInput: return 1
+        case .folderInput: return 1
         case .preview: return 1
         case .inversion, .exposure, .gamma, .denoise, .sharpening, .combination: return nil
         }
@@ -51,6 +54,9 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
         switch type {
         case .imageInput:
             self.outputs = ["Image"]
+        case .folderInput:
+            self.outputs = ["Image"]
+            self.parameters = ["selectedIndex": 0.0] // Default: first image in folder
         case .inversion:
             self.inputs = ["Input"]
             self.outputs = ["Output"]
@@ -102,6 +108,11 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
         switch type {
         case .imageInput:
             outputs = ["Image"]
+        case .folderInput:
+            outputs = ["Image"]
+            if parameters["selectedIndex"] == nil {
+                parameters["selectedIndex"] = 0.0
+            }
         case .inversion:
             inputs = ["Input"]
             outputs = ["Output"]

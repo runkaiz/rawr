@@ -6,6 +6,7 @@ struct NodeGraphView: View {
     @Binding var nodes: [NodeData]
     @Binding var connections: [Connection]
     @Binding var selectedNodeType: NodeType?
+    var onInputNodeDeleted: (() -> Void)?
     @State private var connectingFrom: (nodeId: UUID, output: String)?
     @State private var currentMousePosition: CGPoint = .zero
     @State private var isHoveringInput: UUID?
@@ -399,12 +400,19 @@ struct NodeGraphView: View {
             onDelete: {
                 if let index = nodes.firstIndex(where: { $0.id == node.id }) {
                     let nodeId = nodes[index].id
+                    let nodeType = nodes[index].type
+
                     // Remove connections to/from this node
                     connections.removeAll { connection in
                         connection.fromNodeId == nodeId || connection.toNodeId == nodeId
                     }
                     // Remove node
                     nodes.remove(at: index)
+
+                    // If an input node was deleted, clear the preview images
+                    if nodeType == .imageInput || nodeType == .folderInput {
+                        onInputNodeDeleted?()
+                    }
                 }
             },
             onPositionChange: { newPosition in

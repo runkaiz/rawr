@@ -38,6 +38,7 @@ struct ContentView: View {
 
 struct EditorView: View {
     @Binding var document: RawrDocument
+    @StateObject private var rawrKit = RawrKit()
     @State private var selectedNodeType: NodeType?
     @State private var showExportDialog = false
     @State private var exportFormat: ExportFormat = .tiff
@@ -93,7 +94,17 @@ struct EditorView: View {
                             document = updatedDoc
                         }
                     ),
-                    selectedNodeType: $selectedNodeType
+                    selectedNodeType: $selectedNodeType,
+                    onInputNodeDeleted: {
+                        // Clear all cached images and folder scans when input node is deleted
+                        rawrKit.clearSourceImageCache()
+                        rawrKit.clearFolderCache()
+                        // Clear preview images
+                        Task { @MainActor in
+                            rawrKit.previewImage = nil
+                            rawrKit.processedPreviewImage = nil
+                        }
+                    }
                 )
             }
 
@@ -104,7 +115,8 @@ struct EditorView: View {
                 PreviewSectionView(
                     document: $document,
                     showExportDialog: $showExportDialog,
-                    exportFormat: $exportFormat
+                    exportFormat: $exportFormat,
+                    rawrKit: rawrKit
                 )
                 .frame(height: 300)
             }
@@ -129,11 +141,19 @@ struct PreviewSectionView: View {
     @Binding var document: RawrDocument
     @Binding var showExportDialog: Bool
     @Binding var exportFormat: ExportFormat
-    @StateObject private var rawrKit = RawrKit()
+    @ObservedObject var rawrKit: RawrKit
     @AppStorage("showLogs") private var showLogs = true
 
     var imageInputNode: NodeData? {
         document.flowDocument?.nodeGraph.nodes.first(where: { $0.type == .imageInput })
+    }
+
+    var folderInputNode: NodeData? {
+        document.flowDocument?.nodeGraph.nodes.first(where: { $0.type == .folderInput })
+    }
+
+    var inputNode: NodeData? {
+        imageInputNode ?? folderInputNode
     }
 
     var previewNode: NodeData? {
@@ -285,6 +305,16 @@ struct PreviewSectionView: View {
             rawrKit.clearSourceImageCache()
             loadImageOrExecuteGraph()
         }
+        .task(id: folderInputNode?.imageURL) {
+            // Clear folder cache when folder URL changes
+            rawrKit.clearFolderCache()
+            rawrKit.clearSourceImageCache()
+            loadImageOrExecuteGraph()
+        }
+        .task(id: folderInputNode?.parameters["selectedIndex"]) {
+            // Re-execute when selected image index changes
+            loadImageOrExecuteGraph()
+        }
         .task(id: document.flowDocument?.nodeGraph.nodes.count) {
             loadImageOrExecuteGraph()
         }
@@ -298,7 +328,7 @@ struct PreviewSectionView: View {
     }
 
     private func defaultExportFilename() -> String {
-        if let imageURL = imageInputNode?.imageURL {
+        if let imageURL = inputNode?.imageURL {
             let baseName = imageURL.deletingPathExtension().lastPathComponent
             return "\(baseName)_processed.\(exportFormat.fileExtension)"
         }
@@ -340,8 +370,8 @@ struct PreviewSectionView: View {
             // Clear processed preview when preview node is not connected
             rawrKit.clearProcessedPreview()
 
+            // Load input image for the "Before" view (either from imageInput or folderInput)
             if let imageInputNode = nodeGraph.nodes.first(where: { $0.type == .imageInput }) {
-                // Otherwise, just load the image input for the "Before" view
                 // Resolve URL from bookmark if available
                 let urlToLoad: URL?
                 if let bookmarkData = imageInputNode.imageBookmark {
@@ -359,8 +389,35 @@ struct PreviewSectionView: View {
                 } else {
                     print("PreviewSectionView: No valid URL or bookmark for image input node")
                 }
+            } else if let folderInputNode = nodeGraph.nodes.first(where: { $0.type == .folderInput }) {
+                // Handle folder input
+                let folderURL: URL?
+                if let bookmarkData = folderInputNode.imageBookmark {
+                    folderURL = rawrKit.resolveBookmark(bookmarkData)
+                } else {
+                    folderURL = folderInputNode.imageURL
+                }
+
+                if let folder = folderURL {
+                    let selectedIndex = Int(folderInputNode.parameters["selectedIndex"] ?? 0.0)
+                    print("PreviewSectionView: Loading image \(selectedIndex) from folder: \(folder.path)")
+                    Task {
+                        // Load image from folder with proper security scoping
+                        if let cgImage = await rawrKit.loadImageFromFolder(folderURL: folder, selectedIndex: selectedIndex) {
+                            await MainActor.run {
+                                // Set the preview image directly (already scaled)
+                                rawrKit.previewImage = cgImage
+                            }
+                            print("PreviewSectionView: Folder image loaded successfully")
+                        } else {
+                            print("PreviewSectionView: Failed to load image from folder")
+                        }
+                    }
+                } else {
+                    print("PreviewSectionView: No valid URL or bookmark for folder input node")
+                }
             } else {
-                print("PreviewSectionView: No image input node")
+                print("PreviewSectionView: No input node (imageInput or folderInput)")
             }
         }
     }
@@ -370,10 +427,11 @@ struct PreviewSectionView: View {
             return
         }
 
-        // Only execute if we have all required nodes
-        guard nodeGraph.nodes.contains(where: { $0.type == .imageInput }),
-              nodeGraph.nodes.contains(where: { $0.type == .preview })
-        else {
+        // Only execute if we have all required nodes (either imageInput or folderInput)
+        let hasInputNode = nodeGraph.nodes.contains(where: { $0.type == .imageInput || $0.type == .folderInput })
+        let hasPreviewNode = nodeGraph.nodes.contains(where: { $0.type == .preview })
+
+        guard hasInputNode && hasPreviewNode else {
             return
         }
 
