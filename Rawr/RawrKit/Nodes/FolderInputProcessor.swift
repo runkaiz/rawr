@@ -89,7 +89,7 @@ public class FolderInputProcessor: MetalNodeProcessor {
 
     /// Load an image from a file within an already-accessed folder
     /// This assumes the parent folder's security-scoped access is already active
-    /// Images are automatically scaled to preview resolution (1920px max dimension)
+    /// Images are scaled to preview resolution (1920px max dimension) unless in full resolution export mode
     private func loadImageFromFolder(url: URL, context: ProcessingContext) -> CGImage? {
         do {
             // We're relying on the parent folder's security-scoped access
@@ -127,11 +127,17 @@ public class FolderInputProcessor: MetalNodeProcessor {
                 orientedImage = rawImage
             }
 
-            // Scale to preview resolution (1920px max dimension) for performance
-            let scaledImage = scaleToPreviewResolution(orientedImage, context: context)
-            context.log("Loaded and scaled image from folder: \(scaledImage.width)x\(scaledImage.height)")
+            // Scale to preview resolution unless in full resolution mode
+            let finalImage: CGImage
+            if context.logger?.isFullResolutionMode == true {
+                finalImage = orientedImage
+                context.log("Loaded full resolution image from folder: \(finalImage.width)x\(finalImage.height)")
+            } else {
+                finalImage = scaleToPreviewResolution(orientedImage, context: context)
+                context.log("Loaded preview resolution image from folder: \(finalImage.width)x\(finalImage.height) (scaled from \(orientedImage.width)x\(orientedImage.height))")
+            }
 
-            return scaledImage
+            return finalImage
         } catch {
             context.log("Failed to load image from folder: \(error.localizedDescription)", level: .error)
             return nil

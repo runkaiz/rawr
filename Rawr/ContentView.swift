@@ -64,6 +64,17 @@ struct EditorView: View {
         isPreviewNodeConnected
     }
 
+    var hasFolderInput: Bool {
+        document.flowDocument?.nodeGraph.nodes.contains(where: { $0.type == .folderInput }) ?? false
+    }
+
+    var exportHelpText: String {
+        if !canExport {
+            return "Connect nodes to enable export"
+        }
+        return hasFolderInput ? "Batch export all images from folder at full resolution" : "Export processed image at full resolution"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Top: Node graph area
@@ -129,7 +140,7 @@ struct EditorView: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .disabled(!canExport)
-                .help(canExport ? "Export processed image at full resolution" : "Connect nodes to enable export")
+                .help(exportHelpText)
             }
         }
     }
@@ -167,6 +178,10 @@ struct PreviewSectionView: View {
             return false
         }
         return nodeGraph.connections.contains(where: { $0.toNodeId == previewNode.id })
+    }
+
+    var isFolderInputMode: Bool {
+        folderInputNode != nil
     }
 
     private var imagePreviewsView: some View {
@@ -284,8 +299,18 @@ struct PreviewSectionView: View {
             }
         }
         .background(Color(NSColor.textBackgroundColor))
+        .onChange(of: showExportDialog) { oldValue, newValue in
+            if newValue && isFolderInputMode {
+                // For folder input, show folder picker for batch export
+                showFolderPicker()
+            }
+            // For single image input, fileExporter will handle it
+        }
         .fileExporter(
-            isPresented: $showExportDialog,
+            isPresented: Binding(
+                get: { showExportDialog && !isFolderInputMode },
+                set: { showExportDialog = $0 }
+            ),
             document: ExportDocument(),
             contentType: exportFormat.utType,
             defaultFilename: defaultExportFilename()
@@ -347,6 +372,43 @@ struct PreviewSectionView: View {
                 rawrKit.log("Export completed successfully", level: .info)
             } else {
                 rawrKit.log("Export failed", level: .error)
+            }
+        }
+    }
+
+    private func showFolderPicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Select output folder for batch export"
+        panel.prompt = "Export"
+
+        panel.begin { response in
+            // Reset the dialog state
+            showExportDialog = false
+
+            if response == .OK, let outputFolder = panel.url {
+                exportFolderBatch(to: outputFolder)
+            } else {
+                rawrKit.log("Batch export cancelled", level: .info)
+            }
+        }
+    }
+
+    private func exportFolderBatch(to outputFolder: URL) {
+        guard let nodeGraph = document.flowDocument?.nodeGraph else {
+            rawrKit.log("No node graph available for batch export", level: .error)
+            return
+        }
+
+        Task {
+            let success = await rawrKit.exportFolderBatch(nodeGraph, to: outputFolder, format: exportFormat)
+            if success {
+                rawrKit.log("Batch export completed successfully", level: .info)
+            } else {
+                rawrKit.log("Batch export completed with errors", level: .warning)
             }
         }
     }

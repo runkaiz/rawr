@@ -18,7 +18,7 @@ public class RawrKit: ObservableObject {
 
     // Preview resolution settings - all processing uses preview resolution for real-time editing
     public var maxPreviewDimension: CGFloat = 1920 // Default to 1920px for real-time editing
-    private var isFullResolutionMode = false // Flag for export mode
+    internal var isFullResolutionMode = false // Flag for export mode (internal so processors can access it)
 
     // Graph execution
     private var graphExecutor: GraphExecutor?
@@ -669,11 +669,17 @@ public class RawrKit: ObservableObject {
                 orientedImage = rawImage
             }
 
-            // Scale to preview resolution (1920px max dimension) for performance
-            let scaledImage = scaleToPreviewResolution(orientedImage)
-            log("Loaded and scaled image from folder: \(scaledImage.width)x\(scaledImage.height)")
+            // Scale to preview resolution unless in full resolution mode
+            let finalImage: CGImage
+            if isFullResolutionMode {
+                finalImage = orientedImage
+                log("Loaded full resolution image from folder: \(finalImage.width)x\(finalImage.height)")
+            } else {
+                finalImage = scaleToPreviewResolution(orientedImage)
+                log("Loaded preview resolution image from folder: \(finalImage.width)x\(finalImage.height) (scaled from \(orientedImage.width)x\(orientedImage.height))")
+            }
 
-            return scaledImage
+            return finalImage
         } catch {
             log("Failed to load image from folder: \(error.localizedDescription)", level: .error)
             return nil
@@ -743,6 +749,125 @@ public class RawrKit: ObservableObject {
 
         // Save the image
         return await saveImage(finalImage, to: url, format: format)
+    }
+
+    /// Export all images from a folder input node (batch export)
+    /// - Parameters:
+    ///   - nodeGraph: The node graph to execute at full resolution
+    ///   - outputFolder: The destination folder to save all processed images
+    ///   - format: The image format to export (default: TIFF for lossless quality)
+    /// - Returns: True if all exports succeeded, false if any failed
+    public func exportFolderBatch(_ nodeGraph: NodeGraph, to outputFolder: URL, format: ExportFormat = .tiff) async -> Bool {
+        await MainActor.run {
+            isProcessing = true
+            performance.startTime = Date()
+        }
+
+        defer {
+            Task { @MainActor in
+                isProcessing = false
+                performance.endTime = Date()
+            }
+        }
+
+        // Find the folder input node
+        guard let folderInputNode = nodeGraph.nodes.first(where: { $0.type == .folderInput }) else {
+            log("No folder input node found in graph", level: .error)
+            return false
+        }
+
+        // Get the folder URL
+        let folderURL: URL?
+        if let bookmarkData = folderInputNode.imageBookmark {
+            folderURL = resolveBookmark(bookmarkData)
+        } else {
+            folderURL = folderInputNode.imageURL
+        }
+
+        guard let folder = folderURL else {
+            log("No folder URL available for batch export", level: .error)
+            return false
+        }
+
+        // Scan folder for images
+        guard let imageURLs = await scanFolderForImages(folderURL: folder) else {
+            log("Failed to scan folder for batch export", level: .error)
+            return false
+        }
+
+        guard !imageURLs.isEmpty else {
+            log("No images found in folder for batch export", level: .error)
+            return false
+        }
+
+        log("Starting batch export of \(imageURLs.count) images to: \(outputFolder.lastPathComponent)")
+
+        // Switch to full resolution mode
+        isFullResolutionMode = true
+        clearSourceImageCache()
+
+        defer {
+            isFullResolutionMode = false
+            clearSourceImageCache()
+        }
+
+        guard let executor = graphExecutor else {
+            log("Graph executor not initialized", level: .error)
+            return false
+        }
+
+        var successCount = 0
+        var failCount = 0
+
+        // Process each image
+        for (index, imageURL) in imageURLs.enumerated() {
+            log("Processing image \(index + 1)/\(imageURLs.count): \(imageURL.lastPathComponent)")
+
+            // Create a modified graph with the current image index
+            var modifiedGraph = nodeGraph
+            if let nodeIndex = modifiedGraph.nodes.firstIndex(where: { $0.id == folderInputNode.id }) {
+                modifiedGraph.nodes[nodeIndex].parameters["selectedIndex"] = Double(index)
+            }
+
+            // Clear cache for this image
+            await executor.clearCache()
+            clearSourceImageCache()
+
+            // Execute graph at full resolution
+            let result = await Task.detached {
+                await executor.execute(nodeGraph: modifiedGraph)
+            }.value
+
+            guard !result.isEmpty else {
+                log("No output generated for image \(index + 1)", level: .error)
+                failCount += 1
+                continue
+            }
+
+            // Get the processed image
+            guard let (_, outputs) = result.first,
+                  let outputData = outputs["Output"],
+                  let finalImage = outputData.cgImage else {
+                log("Failed to extract processed image for image \(index + 1)", level: .error)
+                failCount += 1
+                continue
+            }
+
+            // Generate output filename: original_name_processed.extension
+            let baseName = imageURL.deletingPathExtension().lastPathComponent
+            let outputFilename = "\(baseName)_processed.\(format.fileExtension)"
+            let outputURL = outputFolder.appendingPathComponent(outputFilename)
+
+            // Save the image
+            if await saveImage(finalImage, to: outputURL, format: format) {
+                successCount += 1
+            } else {
+                failCount += 1
+            }
+        }
+
+        log("Batch export completed: \(successCount) succeeded, \(failCount) failed")
+        return failCount == 0
     }
 
     private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat) async -> Bool {
