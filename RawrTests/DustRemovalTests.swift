@@ -63,7 +63,8 @@ struct DustRemovalTests {
         let ctx = try context(), w = 128
         let clean = scene()
         var damaged = clean
-        let specks = [20 * w + 20, 30 * w + 100]
+        // Include marks immediately on both sides of the hard scene edge.
+        let specks = [20 * w + 20, 30 * w + 100, 35 * w + 63, 60 * w + 64]
         let hair = (45...56).map { $0 * w + 28 }
         let scratch = (85...96).map { 70 * w + $0 }
         let defects = specks + hair + scratch
