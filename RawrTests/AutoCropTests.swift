@@ -231,6 +231,7 @@ struct AutoCropTests {
         }
         var source = NodeData(type: .folderInput,position: .zero)
         source.imageURL = folder
+        source.parameters["selectedIndex"] = 1
         var crop = NodeData(type: .autoCrop,position: .zero)
         crop.autoCrop?.rollSize = CropGeometry(width: 0.65,height: 0.5)
         crop.autoCrop?.rollSourceWidth = 640
@@ -242,6 +243,10 @@ struct AutoCropTests {
             Connection(fromNodeId: crop.id,fromOutput: "Output",toNodeId: preview.id,toInput: "Input")])
         let restored = try JSONDecoder().decode(NodeGraph.self,from: JSONEncoder().encode(graph))
         let kit = RawrKit()
+        try #require(await kit.executeGraph(restored))
+        let result = try #require(kit.cropResults[crop.id])
+        #expect(abs(result.applied.centerX-result.proposal.centerX-0.005) < 1e-8)
+        #expect(abs(result.applied.degrees-result.proposal.degrees-0.25) < 1e-8)
         try #require(await kit.exportFolderBatch(restored,to: exports))
         let urls = try FileManager.default.contentsOfDirectory(at: exports,includingPropertiesForKeys: nil)
         #expect(urls.count == 2)
@@ -250,9 +255,6 @@ struct AutoCropTests {
             #expect(image.width == 416)
             #expect(image.height == 240)
         }
-        let result = try #require(kit.cropResults[crop.id])
-        #expect(abs(result.applied.centerX-result.proposal.centerX-0.005) < 1e-8)
-        #expect(abs(result.applied.degrees-result.proposal.degrees-0.25) < 1e-8)
     }
 
     @Test func `Auto Crop controls render headlessly`() async throws {
