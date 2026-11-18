@@ -38,8 +38,9 @@ disabled so NaN/Inf checks are meaningful. There is no optional half mode.
 Density, normalization and print are fused into one compute dispatch, with no
 full-image CPU readback between stages. The source and result textures are
 private GPU resources. Command failures propagate as an unsuccessful render.
-A CGImage is created at the Preview/Export boundary only, as unsigned 16-bit
-linear sRGB with its ICC profile. Display conversion is performed by the
+A CGImage is created only at the display-sized Preview boundary, as unsigned
+16-bit linear sRGB with its ICC profile. Export writes the GPU result directly
+through Core Image's file writer. Display conversion is performed by the
 profile-aware SwiftUI image view. TIFF contains linear positive RGB, not an
 sRGB transfer curve; encoding quantization occurs only at the terminal boundary.
 Alpha is premultiplied at texture boundaries, and straight RGB is used for logs.
@@ -47,8 +48,9 @@ Alpha is premultiplied at texture boundaries, and straight RGB is used for logs.
 Preview renders the same native-size development as export and then uses
 Core Image Lanczos scaling on the positive result. Thus fine structure does not
 change meaning through pre-log downsampling. The tradeoff is full-resolution
-processing cost and memory on each slider edit. This correctness baseline is
-not a tiled engine and makes no latency/large-roll throughput claim. There is
+development cost and memory on each slider edit; unchanged upstream cleanup
+and statistics are reused. The compute graph still uses full-size textures;
+see [performance](performance.md) for resource bounds and benchmark methodology. There is
 no geometry/crop control in this slice: both paths retain the complete oriented
 source rectangle. Preview and export share the existing serialized request FIFO.
 
