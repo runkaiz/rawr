@@ -140,8 +140,14 @@ public final class AutoCropProcessor: MetalNodeProcessor {
             context.log("Auto Crop: low confidence; image retained intact", level: .warning)
             return ["Output": input]
         }
-        let width = max(1, Int((geometry.width * Double(input.texture.width)).rounded(.down)))
-        let height = max(1, Int((geometry.height * Double(input.texture.height)).rounded(.down)))
+        // Derive roll dimensions from the reference once, avoiding a one-pixel
+        // difference from normalize/denormalize rounding on different scans.
+        let pixelWidth = settings.rollSize.map { $0.width * Double(settings.rollSourceWidth ?? input.texture.width) }
+            ?? geometry.width * Double(input.texture.width)
+        let pixelHeight = settings.rollSize.map { $0.height * Double(settings.rollSourceHeight ?? input.texture.height) }
+            ?? geometry.height * Double(input.texture.height)
+        let width = max(1, Int(pixelWidth.rounded(.down)))
+        let height = max(1, Int(pixelHeight.rounded(.down)))
         guard let command = context.commandQueue.makeCommandBuffer() else { return nil }
         command.label = "Auto Crop: straighten and crop (RGB + registered IR)"
         var transform = CropTransform(geometry)
