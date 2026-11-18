@@ -38,6 +38,16 @@
 			);
 			target = B2E1BA292DC192C5006664BD /* Rawr */;
 		};
+		F10000000000000000000001 /* Exceptions for Rawr in logic tests */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				RawrApp.swift,
+				Info.plist,
+				Rawr.entitlements,
+				Assets.xcassets,
+			);
+			target = B2E1BA3A2DC192C6006664BD /* RawrTests */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -45,6 +55,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				B2E1BA4D2DC192C6006664BD /* Exceptions for "Rawr" folder in "Rawr" target */,
+				F10000000000000000000001 /* Exceptions for Rawr in logic tests */,
 			);
 			path = Rawr;
 			sourceTree = "<group>";
@@ -151,10 +162,10 @@
 			buildRules = (
 			);
 			dependencies = (
-				B2E1BA3D2DC192C6006664BD /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B2E1BA3E2DC192C6006664BD /* RawrTests */,
+				B2E1BA2C2DC192C5006664BD /* Rawr */,
 			);
 			name = RawrTests;
 			packageProductDependencies = (
@@ -201,7 +212,6 @@
 					};
 					B2E1BA3A2DC192C6006664BD = {
 						CreatedOnToolsVersion = 16.3;
-						TestTargetID = B2E1BA292DC192C5006664BD;
 					};
 					B2E1BA442DC192C6006664BD = {
 						CreatedOnToolsVersion = 16.3;
@@ -485,7 +495,6 @@
 		B2E1BA542DC192C6006664BD /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
@@ -497,14 +506,12 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rawr.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rawr";
 			};
 			name = Debug;
 		};
 		B2E1BA552DC192C6006664BD /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
@@ -516,7 +523,6 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rawr.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rawr";
 			};
 			name = Release;
 		};

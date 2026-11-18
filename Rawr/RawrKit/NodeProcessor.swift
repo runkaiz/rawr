@@ -52,12 +52,14 @@ public class ProcessingContext {
     public let device: MTLDevice
     public let commandQueue: MTLCommandQueue
     public let ciContext: CIContext
+    public let shaderLibrary: MTLLibrary?
     public weak var logger: RawrKit?
 
     public init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext, logger: RawrKit? = nil) {
         self.device = device
         self.commandQueue = commandQueue
         self.ciContext = ciContext
+        self.shaderLibrary = try? device.makeDefaultLibrary(bundle: Bundle(for: RawrKit.self))
         self.logger = logger
     }
 

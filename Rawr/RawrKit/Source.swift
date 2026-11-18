@@ -22,8 +22,8 @@ public class RawrKit: ObservableObject {
 
     // Graph execution
     private var graphExecutor: GraphExecutor?
-    private var executionTask: Task<Void, Never>?
-    private var pendingNodeGraph: NodeGraph?
+    @MainActor private var operationTask: Task<Void, Never>?
+    @MainActor private var operations: [(operation: @MainActor () async -> Bool, completion: CheckedContinuation<Bool, Never>)] = []
 
     // Internal storage for full resolution images (legacy support)
     private var currentImage: CGImage?
@@ -155,80 +155,16 @@ public class RawrKit: ObservableObject {
             }
         }
 
-        // Try to load the file data directly first
         do {
-            let imageData = try Data(contentsOf: url)
-            log("Loaded file data: \(imageData.count) bytes")
-
-            // Create image source from data instead of URL
-            guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else {
-                log("Failed to create image source from data", level: .error)
-                return false
-            }
-
-            // Check for orientation metadata
-            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
-            let orientation = properties?[kCGImagePropertyOrientation] as? UInt32 ?? CGImagePropertyOrientation.up.rawValue
-            log("Image orientation from metadata: \(orientation)")
-
-            let options: [CFString: Any] = [
-                kCGImageSourceShouldAllowFloat: true,
-                kCGImageSourceShouldCache: false,
-                kCGImageSourceCreateThumbnailFromImageAlways: false
-            ]
-
-            guard let rawCGImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
-                log("Failed to create CGImage from source", level: .error)
-
-                // Try using Core Image for RAW files - load from data instead of URL
-                guard let ciImage = CIImage(data: imageData, options: [.applyOrientationProperty: true]) else {
-                    log("Failed to create CIImage from data", level: .error)
-                    return false
-                }
-
-                log("Loaded as CIImage with orientation, converting to CGImage")
-                // CIImage should have orientation baked in with applyOrientationProperty
-                if let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) {
-                    await MainActor.run {
-                        self.currentImage = cgImage
-                        self.previewImage = self.createPreview(from: cgImage)
-                    }
-                    log("Successfully loaded RAW file via CIImage: \(cgImage.width)x\(cgImage.height) pixels")
-                    return true
-                } else {
-                    log("Failed to create CGImage from CIImage", level: .error)
-                    return false
-                }
-            }
-
-            // Apply orientation correction to the loaded CGImage
-            let cgImage: CGImage
-            if orientation != CGImagePropertyOrientation.up.rawValue {
-                log("Applying orientation correction")
-                // Convert CGImage to CIImage, apply orientation, then back to CGImage
-                let ciImage = CIImage(cgImage: rawCGImage)
-                let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(orientation))
-
-                if let correctedCGImage = ciContext.createCGImage(orientedCIImage, from: orientedCIImage.extent) {
-                    cgImage = correctedCGImage
-                } else {
-                    log("Failed to apply orientation correction, using original", level: .warning)
-                    cgImage = rawCGImage
-                }
-            } else {
-                cgImage = rawCGImage
-            }
-
+            let image = try ImageDecoder(context: ciContext).decode(url: url)
             await MainActor.run {
-                self.currentImage = cgImage
-                self.previewImage = self.createPreview(from: cgImage)
+                self.currentImage = image
+                self.previewImage = self.createPreview(from: image)
             }
-
-            log("Successfully loaded RAW file: \(cgImage.width)x\(cgImage.height) pixels")
+            log("Successfully loaded image: \(image.width)x\(image.height) pixels")
             return true
-
         } catch {
-            log("Failed to read file: \(error.localizedDescription)", level: .error)
+            log("Failed to load image: \(error.localizedDescription)", level: .error)
             return false
         }
     }
@@ -290,88 +226,51 @@ public class RawrKit: ObservableObject {
 
     // MARK: - Graph Execution API
 
-    /// Execute the node graph and update preview images
-    /// This is the main entry point for processing images through the node graph
+    /// Returns the result of this request after processing and preview publication.
+    /// Preview and export requests share a FIFO so resolution/cache state cannot overlap.
+    @MainActor
     public func executeGraph(_ nodeGraph: NodeGraph) async -> Bool {
-        // Queue the execution request
-        pendingNodeGraph = nodeGraph
-
-        // If there's already an execution running, it will pick up the pending graph
-        if executionTask != nil {
-            return true
-        }
-
-        // Start a new execution task
-        executionTask = Task { @MainActor in
-            await self.processGraphQueue()
-        }
-
-        return true
+        await enqueue { await self.executePreview(nodeGraph) }
     }
 
-    private func processGraphQueue() async {
+    @MainActor
+    private func enqueue(_ operation: @escaping @MainActor () async -> Bool) async -> Bool {
+        await withCheckedContinuation { completion in
+            operations.append((operation, completion))
+            guard operationTask == nil else { return }
+            operationTask = Task { @MainActor in
+                while !operations.isEmpty {
+                    let request = operations.removeFirst()
+                    isProcessing = true
+                    performance.startTime = Date()
+                    let success = await request.operation()
+                    performance.endTime = Date()
+                    isProcessing = false
+                    request.completion.resume(returning: success)
+                }
+                operationTask = nil
+            }
+        }
+    }
+
+    @MainActor
+    private func executePreview(_ graph: NodeGraph) async -> Bool {
         guard let executor = graphExecutor else {
             log("Graph executor not initialized (Metal device required)", level: .error)
-            executionTask = nil
-            return
+            return false
         }
-
-        while let nodeGraph = pendingNodeGraph {
-            // Clear pending before execution so new requests can queue
-            pendingNodeGraph = nil
-
-            await MainActor.run {
-                isProcessing = true
-                performance.startTime = Date()
-            }
-
-            log("Executing node graph...")
-
-            // Execute the graph on a background actor
-            let result = await Task.detached {
-                await executor.execute(nodeGraph: nodeGraph)
-            }.value
-
-            guard !result.isEmpty else {
-                log("No preview outputs generated", level: .warning)
-                await MainActor.run {
-                    processedPreviewImage = nil
-                    isProcessing = false
-                    performance.endTime = Date()
-                }
-                continue
-            }
-
-            // Get the first preview node's output (we only allow one preview node)
-            if let (_, outputs) = result.first,
-               let outputData = outputs["Output"] {
-
-                // Create previews for display
-                let beforeImage = await getSourceImage(from: nodeGraph)
-                let afterImage = outputData.cgImage
-
-                await MainActor.run {
-                    if let beforeImage = beforeImage {
-                        self.previewImage = self.createPreview(from: beforeImage)
-                    }
-                    if let afterImage = afterImage {
-                        self.processedPreviewImage = self.createPreview(from: afterImage)
-                    }
-                    isProcessing = false
-                    performance.endTime = Date()
-                }
-
-                log("Graph execution completed successfully")
-            } else {
-                log("Failed to extract preview output", level: .error)
-                await MainActor.run {
-                    isProcessing = false
-                    performance.endTime = Date()
-                }
-            }
+        let result = await executor.execute(nodeGraph: graph)
+        guard let output = result.first?.value["Output"], let after = output.cgImage else {
+            processedPreviewImage = nil
+            log("No preview outputs generated", level: .warning)
+            return false
         }
-
-        executionTask = nil
+        if let before = await getSourceImage(from: graph) {
+            previewImage = createPreview(from: before)
+        }
+        processedPreviewImage = createPreview(from: after)
+        log("Graph execution completed successfully")
+        return true
     }
 
     /// Extract the source image from the graph's Image Input or Folder Input node
@@ -444,60 +343,19 @@ public class RawrKit: ObservableObject {
             }
         }
 
+        guard let image = decodeSourceImage(at: url) else { return nil }
+        cachedSourceImage = image
+        cachedSourceURL = url
+        return image
+    }
+
+    /// The caller holds file or parent-folder security access.
+    internal func decodeSourceImage(at url: URL) -> CGImage? {
         do {
-            let imageData = try Data(contentsOf: url)
-            guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else {
-                return nil
-            }
-
-            // Check for orientation metadata
-            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
-            let orientation = properties?[kCGImagePropertyOrientation] as? UInt32 ?? CGImagePropertyOrientation.up.rawValue
-            log("Image orientation from metadata: \(orientation)")
-
-            let options: [CFString: Any] = [
-                kCGImageSourceShouldAllowFloat: true,
-                kCGImageSourceShouldCache: false
-            ]
-
-            guard let rawImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
-                return nil
-            }
-
-            // Apply orientation correction
-            let fullResImage: CGImage
-            if orientation != CGImagePropertyOrientation.up.rawValue {
-                log("Applying orientation correction")
-                let ciImage = CIImage(cgImage: rawImage)
-                let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(orientation))
-
-                if let correctedImage = ciContext.createCGImage(orientedCIImage, from: orientedCIImage.extent) {
-                    fullResImage = correctedImage
-                } else {
-                    log("Failed to apply orientation correction, using original", level: .warning)
-                    fullResImage = rawImage
-                }
-            } else {
-                fullResImage = rawImage
-            }
-
-            // Scale to preview resolution unless in full resolution mode
-            let cgImage: CGImage
-            if isFullResolutionMode {
-                cgImage = fullResImage
-                log("Loaded full resolution image: \(cgImage.width)x\(cgImage.height)")
-            } else {
-                cgImage = scaleToPreviewResolution(fullResImage)
-                log("Loaded preview resolution image: \(cgImage.width)x\(cgImage.height) (scaled from \(fullResImage.width)x\(fullResImage.height))")
-            }
-
-            // Update cache
-            cachedSourceImage = cgImage
-            cachedSourceURL = url
-
-            return cgImage
+            let image = try ImageDecoder(context: ciContext).decode(url: url)
+            return isFullResolutionMode ? image : scaleToPreviewResolution(image)
         } catch {
-            log("Failed to load source image: \(error.localizedDescription)", level: .error)
+            log("Failed to decode \(url.lastPathComponent): \(error.localizedDescription)", level: .error)
             return nil
         }
     }
@@ -576,7 +434,7 @@ public class RawrKit: ObservableObject {
             let contents = try fileManager.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: [.isRegularFileKey], options: .skipsHiddenFiles)
 
             // Filter for supported image types
-            let supportedExtensions = ["jpg", "jpeg", "png", "tiff", "tif", "dng", "cr2", "cr3", "nef", "arw", "orf", "rw2", "raf", "raw"]
+            let supportedExtensions = ImageDecoder.rawExtensions.union(["jpg", "jpeg", "png", "tiff", "tif"])
             let imageURLs = contents.filter { url in
                 let ext = url.pathExtension.lowercased()
                 return supportedExtensions.contains(ext)
@@ -630,60 +488,7 @@ public class RawrKit: ObservableObject {
 
         log("Loading image \(validIndex + 1) of \(imageURLs.count) from folder")
 
-        // Load the image while folder access is active
-        do {
-            let imageData = try Data(contentsOf: selectedImageURL)
-            guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else {
-                log("Failed to create image source from data", level: .error)
-                return nil
-            }
-
-            // Check for orientation metadata
-            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
-            let orientation = properties?[kCGImagePropertyOrientation] as? UInt32 ?? CGImagePropertyOrientation.up.rawValue
-
-            let options: [CFString: Any] = [
-                kCGImageSourceShouldAllowFloat: true,
-                kCGImageSourceShouldCache: false
-            ]
-
-            guard let rawImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
-                log("Failed to create CGImage from source", level: .error)
-                return nil
-            }
-
-            // Apply orientation correction if needed
-            let orientedImage: CGImage
-            if orientation != CGImagePropertyOrientation.up.rawValue {
-                log("Applying orientation correction")
-                let ciImage = CIImage(cgImage: rawImage)
-                let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(orientation))
-
-                if let correctedImage = ciContext.createCGImage(orientedCIImage, from: orientedCIImage.extent) {
-                    orientedImage = correctedImage
-                } else {
-                    log("Failed to apply orientation correction, using original", level: .warning)
-                    orientedImage = rawImage
-                }
-            } else {
-                orientedImage = rawImage
-            }
-
-            // Scale to preview resolution unless in full resolution mode
-            let finalImage: CGImage
-            if isFullResolutionMode {
-                finalImage = orientedImage
-                log("Loaded full resolution image from folder: \(finalImage.width)x\(finalImage.height)")
-            } else {
-                finalImage = scaleToPreviewResolution(orientedImage)
-                log("Loaded preview resolution image from folder: \(finalImage.width)x\(finalImage.height) (scaled from \(orientedImage.width)x\(orientedImage.height))")
-            }
-
-            return finalImage
-        } catch {
-            log("Failed to load image from folder: \(error.localizedDescription)", level: .error)
-            return nil
-        }
+        return decodeSourceImage(at: selectedImageURL)
     }
 
     // MARK: - Export
@@ -694,19 +499,13 @@ public class RawrKit: ObservableObject {
     ///   - to: The destination URL to save the image
     ///   - format: The image format to export (default: TIFF for lossless quality)
     /// - Returns: True if export succeeded, false otherwise
+    @MainActor
     public func exportImage(_ nodeGraph: NodeGraph, to url: URL, format: ExportFormat = .tiff) async -> Bool {
-        await MainActor.run {
-            isProcessing = true
-            performance.startTime = Date()
-        }
+        await enqueue { await self.exportSingle(nodeGraph, to: url, format: format) }
+    }
 
-        defer {
-            Task { @MainActor in
-                isProcessing = false
-                performance.endTime = Date()
-            }
-        }
-
+    @MainActor
+    private func exportSingle(_ nodeGraph: NodeGraph, to url: URL, format: ExportFormat) async -> Bool {
         log("Starting full resolution export to: \(url.lastPathComponent)")
 
         // Switch to full resolution mode
@@ -757,19 +556,17 @@ public class RawrKit: ObservableObject {
     ///   - outputFolder: The destination folder to save all processed images
     ///   - format: The image format to export (default: TIFF for lossless quality)
     /// - Returns: True if all exports succeeded, false if any failed
+    @MainActor
     public func exportFolderBatch(_ nodeGraph: NodeGraph, to outputFolder: URL, format: ExportFormat = .tiff) async -> Bool {
-        await MainActor.run {
-            isProcessing = true
-            performance.startTime = Date()
-        }
+        await enqueue { await self.exportBatch(nodeGraph, to: outputFolder, format: format) }
+    }
 
-        defer {
-            Task { @MainActor in
-                isProcessing = false
-                performance.endTime = Date()
-            }
+    @MainActor
+    private func exportBatch(_ nodeGraph: NodeGraph, to outputFolder: URL, format: ExportFormat) async -> Bool {
+        if let error = nodeGraph.validationError() {
+            log(error, level: .error)
+            return false
         }
-
         // Find the folder input node
         guard let folderInputNode = nodeGraph.nodes.first(where: { $0.type == .folderInput }) else {
             log("No folder input node found in graph", level: .error)
@@ -789,6 +586,13 @@ public class RawrKit: ObservableObject {
             return false
         }
 
+        let gotFolderAccess = folder.startAccessingSecurityScopedResource()
+        let gotOutputAccess = outputFolder.startAccessingSecurityScopedResource()
+        defer {
+            if gotFolderAccess { folder.stopAccessingSecurityScopedResource() }
+            if gotOutputAccess { outputFolder.stopAccessingSecurityScopedResource() }
+        }
+        clearFolderCache()
         // Scan folder for images
         guard let imageURLs = await scanFolderForImages(folderURL: folder) else {
             log("Failed to scan folder for batch export", level: .error)
@@ -818,6 +622,14 @@ public class RawrKit: ObservableObject {
 
         var successCount = 0
         var failCount = 0
+
+        let destinations: [URL]
+        do {
+            destinations = try BatchDestinations.plan(inputs: imageURLs, folder: outputFolder, extension: format.fileExtension)
+        } catch {
+            log("Failed to plan batch destinations: \(error.localizedDescription)", level: .error)
+            return false
+        }
 
         // Process each image
         for (index, imageURL) in imageURLs.enumerated() {
@@ -853,13 +665,8 @@ public class RawrKit: ObservableObject {
                 continue
             }
 
-            // Generate output filename: original_name_processed.extension
-            let baseName = imageURL.deletingPathExtension().lastPathComponent
-            let outputFilename = "\(baseName)_processed.\(format.fileExtension)"
-            let outputURL = outputFolder.appendingPathComponent(outputFilename)
-
-            // Save the image
-            if await saveImage(finalImage, to: outputURL, format: format) {
+            // The final install refuses to replace a file created after preflight.
+            if await saveImage(finalImage, to: destinations[index], format: format, replaceExisting: false) {
                 successCount += 1
             } else {
                 failCount += 1
@@ -870,8 +677,10 @@ public class RawrKit: ObservableObject {
         return failCount == 0
     }
 
-    private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat) async -> Bool {
-        let destination = CGImageDestinationCreateWithURL(url as CFURL, format.utType.identifier as CFString, 1, nil)
+    private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat, replaceExisting: Bool = true) async -> Bool {
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".rawr-\(UUID().uuidString).tmp")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let destination = CGImageDestinationCreateWithURL(temporary as CFURL, format.utType.identifier as CFString, 1, nil)
         guard let destination = destination else {
             log("Failed to create image destination", level: .error)
             return false
@@ -896,6 +705,21 @@ public class RawrKit: ObservableObject {
             return false
         }
 
+        do {
+            if replaceExisting {
+                if FileManager.default.fileExists(atPath: url.path) {
+                    _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+                } else {
+                    try FileManager.default.moveItem(at: temporary, to: url)
+                }
+            } else {
+                // Hard-link creation is atomic and fails if the destination exists.
+                try FileManager.default.linkItem(at: temporary, to: url)
+            }
+        } catch {
+            log("Failed to install export: \(error.localizedDescription)", level: .error)
+            return false
+        }
         log("Successfully exported image to: \(url.lastPathComponent)")
         return true
     }

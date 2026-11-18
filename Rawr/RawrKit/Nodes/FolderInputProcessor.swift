@@ -64,7 +64,7 @@ public class FolderInputProcessor: MetalNodeProcessor {
 
         // Load the image directly here while we have folder access, rather than using getCachedSourceImage
         // which would try to access the file independently
-        guard let cgImage = loadImageFromFolder(url: selectedImageURL, context: context) else {
+        guard let cgImage = context.logger?.decodeSourceImage(at: selectedImageURL) else {
             context.log("Failed to load image from folder", level: .error)
             return nil
         }
@@ -85,89 +85,6 @@ public class FolderInputProcessor: MetalNodeProcessor {
         context.log("Image loaded successfully: \(cgImage.width)x\(cgImage.height)")
 
         return ["Image": imageData]
-    }
-
-    /// Load an image from a file within an already-accessed folder
-    /// This assumes the parent folder's security-scoped access is already active
-    /// Images are scaled to preview resolution (1920px max dimension) unless in full resolution export mode
-    private func loadImageFromFolder(url: URL, context: ProcessingContext) -> CGImage? {
-        do {
-            // We're relying on the parent folder's security-scoped access
-            // Don't call startAccessingSecurityScopedResource on the individual file
-            let imageData = try Data(contentsOf: url)
-            guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil) else {
-                return nil
-            }
-
-            // Check for orientation metadata
-            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any]
-            let orientation = properties?[kCGImagePropertyOrientation] as? UInt32 ?? CGImagePropertyOrientation.up.rawValue
-
-            let options: [CFString: Any] = [
-                kCGImageSourceShouldAllowFloat: true,
-                kCGImageSourceShouldCache: false
-            ]
-
-            guard let rawImage = CGImageSourceCreateImageAtIndex(imageSource, 0, options as CFDictionary) else {
-                return nil
-            }
-
-            // Apply orientation correction if needed
-            let orientedImage: CGImage
-            if orientation != CGImagePropertyOrientation.up.rawValue {
-                let ciImage = CIImage(cgImage: rawImage)
-                let orientedCIImage = ciImage.oriented(forExifOrientation: Int32(orientation))
-
-                if let correctedImage = context.ciContext.createCGImage(orientedCIImage, from: orientedCIImage.extent) {
-                    orientedImage = correctedImage
-                } else {
-                    orientedImage = rawImage
-                }
-            } else {
-                orientedImage = rawImage
-            }
-
-            // Scale to preview resolution unless in full resolution mode
-            let finalImage: CGImage
-            if context.logger?.isFullResolutionMode == true {
-                finalImage = orientedImage
-                context.log("Loaded full resolution image from folder: \(finalImage.width)x\(finalImage.height)")
-            } else {
-                finalImage = scaleToPreviewResolution(orientedImage, context: context)
-                context.log("Loaded preview resolution image from folder: \(finalImage.width)x\(finalImage.height) (scaled from \(orientedImage.width)x\(orientedImage.height))")
-            }
-
-            return finalImage
-        } catch {
-            context.log("Failed to load image from folder: \(error.localizedDescription)", level: .error)
-            return nil
-        }
-    }
-
-    /// Scale an image to preview resolution (1920px max dimension)
-    private func scaleToPreviewResolution(_ image: CGImage, context: ProcessingContext) -> CGImage {
-        let maxPreviewDimension: CGFloat = 1920
-        let width = CGFloat(image.width)
-        let height = CGFloat(image.height)
-
-        // Only scale if image exceeds max dimension
-        guard max(width, height) > maxPreviewDimension else {
-            return image
-        }
-
-        let scale = maxPreviewDimension / max(width, height)
-        let ciImage = CIImage(cgImage: image)
-        let filter = CIFilter(name: "CILanczosScaleTransform")!
-        filter.setValue(ciImage, forKey: kCIInputImageKey)
-        filter.setValue(scale, forKey: kCIInputScaleKey)
-        filter.setValue(1.0, forKey: kCIInputAspectRatioKey)
-
-        guard let outputImage = filter.outputImage,
-              let scaledImage = context.ciContext.createCGImage(outputImage, from: outputImage.extent) else {
-            return image
-        }
-
-        return scaledImage
     }
 
     private func resolveBookmark(_ bookmarkData: Data, context: ProcessingContext) -> URL? {

@@ -9,7 +9,7 @@ public class DenoiseProcessor: MetalNodeProcessor {
 
     public init(context: ProcessingContext) {
         // Load the Metal shader
-        guard let library = context.device.makeDefaultLibrary(),
+        guard let library = context.shaderLibrary,
               let kernelFunction = library.makeFunction(name: "bilateralDenoise"),
               let pipeline = try? context.device.makeComputePipelineState(function: kernelFunction) else {
             fatalError("Failed to create denoise compute pipeline")

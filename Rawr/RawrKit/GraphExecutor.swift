@@ -44,6 +44,10 @@ public actor GraphExecutor {
     /// - Returns: Dictionary of Preview node outputs (node ID -> output images)
     public func execute(nodeGraph: NodeGraph) async -> [UUID: [String: ImageData]] {
         executionCache.removeAll()
+        if let error = nodeGraph.validationError() {
+            context.log(error, level: .error)
+            return [:]
+        }
         context.log("Starting graph execution with \(nodeGraph.nodes.count) nodes")
 
         var previewOutputs: [UUID: [String: ImageData]] = [:]
