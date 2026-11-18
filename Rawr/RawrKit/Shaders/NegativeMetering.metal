@@ -76,21 +76,21 @@ kernel void negativeMeterSelect(device const uint *hist [[buffer(0)]], device Me
     uint tid [[thread_position_in_grid]]) {
     if (tid) return;
     for (uint c = 0; c < 3; ++c) {
-    uint count;
-    device const uint *h = hist + c * bins;
-    if (phase == 0) {
-        float median = quantile(h, 0.5f, count), bright = quantile(h, 0.9f, count);
-        r.base[c] = precise::pow(10.0f, bright * logRange - 6.0f);
-        // A flat bright border supports a base; scene-filled edges do not.
-        r.quality[c] = count >= 16 ? clamp(1.0f - (bright - median) * logRange / 0.06f, 0.0f, 1.0f) : 0;
-    } else if (phase == 1) {
-        float bright = quantile(h, 0.995f, count);
-        if (min(min(r.quality.x, r.quality.y), r.quality.z) < 0.5f)
+        uint count;
+        device const uint *h = hist + c * bins;
+        if (phase == 0) {
+            float median = quantile(h, 0.5f, count), bright = quantile(h, 0.9f, count);
             r.base[c] = precise::pow(10.0f, bright * logRange - 6.0f);
-    } else {
-        r.low[c] = quantile(h, 0.01f, count) * 6.0f;
-        r.high[c] = max(r.low[c] + 0.01f, quantile(h, 0.99f, count) * 6.0f);
-    }
+            // A flat bright border supports a base; scene-filled edges do not.
+            r.quality[c] = count >= 16 ? clamp(1.0f - (bright - median) * logRange / 0.06f, 0.0f, 1.0f) : 0;
+        } else if (phase == 1) {
+            float bright = quantile(h, 0.995f, count);
+            if (min(min(r.quality.x, r.quality.y), r.quality.z) < 0.5f)
+                r.base[c] = precise::pow(10.0f, bright * logRange - 6.0f);
+        } else {
+            r.low[c] = quantile(h, 0.01f, count) * 6.0f;
+            r.high[c] = max(r.low[c] + 0.01f, quantile(h, 0.99f, count) * 6.0f);
+        }
     }
 }
 
@@ -131,6 +131,8 @@ kernel void negativeMeterFit(device const float4 *moments [[buffer(0)]], device 
     r.base.w = min(min(r.quality.x,r.quality.y),r.quality.z) * borderSupport * valid;
     r.low.w = valid * clamp((r.high.y-r.low.y)/0.5f,0.0f,1.0f) * clamp(a.w/64.0f,0.0f,1.0f) *
         clamp(1.0f-d.w/max(1.0f,d.y),0.0f,1.0f);
+    // Uncertain automatic base limits confidence in all derived calibration.
+    r.low.w *= cfg.grid.w ? (0.25f + 0.75f * r.base.w) : 1.0f;
     r.high.w = r.low.w;
     float n = max(1.0f, a.w), variance = b.x - a.y*a.y/n;
     float3 slope(1), offset(0);

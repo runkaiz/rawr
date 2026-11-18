@@ -107,6 +107,7 @@ struct NegativeMeteringTests {
         let noBorder = try #require(await meter.analyze(try image(fixture(border:false),width:256,height:256,context:ctx),parameters:automatic)).result
         let clipped = try #require(await meter.analyze(try image(fixture(clipped:true),width:256,height:256,context:ctx),parameters:automatic)).result
         #expect(noBorder.base.w < 0.2 && noBorder.base.w < good.base.w)
+        #expect(noBorder.low.w < good.low.w*0.5 && noBorder.offset.w < good.offset.w*0.5)
         #expect(clipped.base.w < good.base.w*0.2)
         #expect(clipped.low.w < good.low.w*0.2)
         #expect(clipped.offset.w < good.offset.w*0.2)
@@ -226,11 +227,21 @@ struct NegativeMeteringTests {
         let view = HStack(alignment:.top,spacing:24) {
             VStack { Text("Automatic metering"); NegativeDevelopControls(parameters:automatic,statistics:statistics,onChange:{ _ in }) }.frame(width:260)
             VStack { Text("Locked manual values"); NegativeDevelopControls(parameters:statistics.locking("Balance",in:statistics.locking("Endpoints",in:statistics.locking("Base",in:automatic))),statistics:statistics,onChange:{ _ in }) }.frame(width:260)
-        }.padding().frame(width:600,height:720)
+        }.padding().frame(width:600,height:720).environment(\.colorScheme,.light)
         let host = NSHostingView(rootView:view)
         host.frame = CGRect(x:0,y:0,width:600,height:720); host.layoutSubtreeIfNeeded()
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in:host.bounds))
         host.cacheDisplay(in:host.bounds,to:bitmap)
-        Attachment.record(try #require(bitmap.representation(using:.png,properties:[:])),named:"automatic-negative-metering.png")
+        // Flatten the offscreen view over an opaque light background. Transparent
+        // black labels otherwise disappear in dark attachment viewers.
+        let cg = try #require(bitmap.cgImage)
+        let canvas = try #require(CGContext(data:nil,width:cg.width,height:cg.height,bitsPerComponent:8,
+            bytesPerRow:cg.width*4,space:CGColorSpace(name:CGColorSpace.sRGB)!,
+            bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+        canvas.setFillColor(CGColor(gray:1,alpha:1))
+        canvas.fill(CGRect(x:0,y:0,width:cg.width,height:cg.height))
+        canvas.draw(cg,in:CGRect(x:0,y:0,width:cg.width,height:cg.height))
+        let flattened = NSBitmapImageRep(cgImage:try #require(canvas.makeImage()))
+        Attachment.record(try #require(flattened.representation(using:.png,properties:[:])),named:"automatic-negative-metering.png")
     }
 }

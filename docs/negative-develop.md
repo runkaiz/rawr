@@ -150,7 +150,8 @@ A second reduction fits D[c] = offset[c] + slope[c] * D[G], using samples in the
 central 10–90% of each provisional channel range whose normalized channel spread
 is at most .12. Float32 block moments reduce to a least-squares neutral axis on
 GPU. Confidence combines valid fraction, density span, candidate support, and
-fit residual. Implausible fits (slopes outside [.25,4], offsets outside [-1,1])
+fit residual. When base is automatic, its uncertainty also reduces endpoint and
+balance confidence. Implausible fits (slopes outside [.25,4], offsets outside [-1,1])
 or confidence <= .1 yield an identity axis. With a supported axis, development
 uses (D-offset)/slope before endpoint normalization. This statistical assumption
 can be wrong for strongly colored scenes; inspect the estimate or lock/override
