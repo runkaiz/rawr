@@ -4,6 +4,7 @@ import CoreImage
 import Metal
 import ImageIO
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 
 @Suite(.serialized)
@@ -201,7 +202,9 @@ struct NegativeDevelopTests {
         #expect(exported.width == 128 && exported.height == 256)
         #expect(exported.bitsPerComponent == 16)
         #expect(!exported.bitmapInfo.contains(.floatComponents))
-        #expect(exported.colorSpace?.name == CGColorSpace.linearSRGB)
+        let profile = try #require(exported.colorSpace)
+        #expect(profile.model == .rgb)
+        #expect(CGColorSpaceCopyICCData(profile) != nil) // ImageIO rehydrates an ICC profile with no built-in name.
         let ctx = try context()
         let scaled = CIImage(cgImage: exported).applyingFilter("CILanczosScaleTransform",
             parameters: [kCIInputScaleKey: 0.25, kCIInputAspectRatioKey: 1])
@@ -279,14 +282,15 @@ struct NegativeDevelopTests {
             panel.beforePreviewView.frame(width: 330, height: 300)
             panel.afterPreviewView.frame(width: 330, height: 300)
         }.padding().frame(width: 1030, height: 450)
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
-        let image = try #require(renderer.cgImage)
-        let url = root.appendingPathComponent("negative-develop.png")
-        let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
-        CGImageDestinationAddImage(destination, image, nil)
-        try #require(CGImageDestinationFinalize(destination))
-        Attachment.record(try Data(contentsOf: url), named: "negative-develop.png")
+        // Native numeric fields are AppKit-backed and cannot be flattened by
+        // ImageRenderer. An offscreen hosting view captures them without opening
+        // or ordering a window, launching Rawr, or changing the active app.
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(x: 0, y: 0, width: 1030, height: 450)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])), named: "negative-develop.png")
     }
 }
 

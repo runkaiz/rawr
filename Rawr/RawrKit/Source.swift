@@ -22,6 +22,7 @@ public class RawrKit: ObservableObject {
 
     // Graph execution
     private var graphExecutor: GraphExecutor?
+    private var processingContext: ProcessingContext?
     @MainActor private var operationTask: Task<Void, Never>?
     @MainActor private var operations: [(operation: @MainActor () async -> Bool, completion: CheckedContinuation<Bool, Never>)] = []
 
@@ -49,6 +50,7 @@ public class RawrKit: ObservableObject {
                     ciContext: self.ciContext,
                     logger: nil
                 )
+                self.processingContext = context
                 self.graphExecutor = GraphExecutor(context: context)
                 // Set logger reference after initialization
                 context.logger = self
@@ -268,7 +270,7 @@ public class RawrKit: ObservableObject {
             return false
         }
         if graph.nodes.contains(where: { $0.type == .negativeDevelop }), let texture = negativeSourceTexture {
-            previewImage = NegativeImageIO.boundaryImage(texture, context: ciContext, maxDimension: maxPreviewDimension)
+            previewImage = NegativeImageIO.boundaryImage(texture, context: processingContext?.linearCIContext ?? ciContext, maxDimension: maxPreviewDimension)
         } else if let before = await getSourceImage(from: graph) {
             previewImage = createPreview(from: before)
         }

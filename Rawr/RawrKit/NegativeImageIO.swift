@@ -35,8 +35,8 @@ enum NegativeImageIO {
             context.log("Negative RAW: \(raw.decoderVersion.rawValue), linear sRGB; camera neutral retained, native \(raw.nativeSize)")
             image = output
         } else {
-            // ImageIO honors embedded ICC/TRC. Untagged files are rejected: a
-            // scanner's encoding must be known before taking the logarithm.
+            // ImageIO honors embedded ICC/TRC. Untagged files use ImageIO's
+            // default interpretation; profile scanner data explicitly before use.
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
                   let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
                   let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
@@ -58,7 +58,7 @@ enum NegativeImageIO {
         descriptor.usage = [.shaderRead, .shaderWrite]
         guard let texture = context.device.makeTexture(descriptor: descriptor),
               let command = context.commandQueue.makeCommandBuffer() else { throw ImageDecoder.DecodeError.invalidImage }
-        context.ciContext.render(normalized, to: texture, commandBuffer: command, bounds: bounds, colorSpace: colorSpace)
+        context.linearCIContext.render(normalized, to: texture, commandBuffer: command, bounds: bounds, colorSpace: colorSpace)
         command.commit()
         awaitCompletion(command)
         guard command.status == .completed else { throw ImageDecoder.DecodeError.invalidImage }

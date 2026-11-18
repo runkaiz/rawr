@@ -44,6 +44,11 @@ struct NegativeDevelopControls: View {
             field("Contrast", key: "contrast")
             field("Toe (0–0.5)", key: "toe")
             field("Shoulder (0–0.5)", key: "shoulder")
+            if NegativeDevelopParameters(parameters) == nil {
+                Text("Invalid calibration: check base and endpoint ranges.")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
         }
         .padding(.horizontal, 12)
     }
