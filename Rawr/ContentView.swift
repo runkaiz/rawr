@@ -106,6 +106,7 @@ struct EditorView: View {
                         }
                     ),
                     selectedNodeType: $selectedNodeType,
+                    cropResults: rawrKit.cropResults,
                     negativeStatistics: rawrKit.negativeStatistics,
                     onMeasureRoll: { nodeID in
                         guard let graph = document.flowDocument?.nodeGraph else { return }

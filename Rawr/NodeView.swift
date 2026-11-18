@@ -28,6 +28,7 @@ struct OutputDotPositionKey: PreferenceKey {
 
 struct NodeView: View {
     let node: NodeData
+    var cropResult: AutoCropResult? = nil
     var negativeStatistics: NegativeMeteringResult? = nil
     var rollFrameName: String? = nil
     var onCustomAction: ((String, Any?) -> Void)? = nil
@@ -49,6 +50,7 @@ struct NodeView: View {
 
     private var uiContext: NodeUIContext {
         var context = NodeUIContext(onParameterChange: onParameterChange, onImageSelect: onImageSelect, onCustomAction: onCustomAction)
+        context.cropResult = cropResult
         context.negativeStatistics = negativeStatistics
         context.rollFrameName = rollFrameName
         return context
@@ -186,7 +188,7 @@ struct NodeView: View {
             }
         }
         .padding(.bottom, 8)
-        .frame(width: node.type == .dustRemoval ? 245 : (node.type == .negativeDevelop ? 230 : 150))
+        .frame(width: (node.type == .dustRemoval || node.type == .autoCrop) ? 245 : (node.type == .negativeDevelop ? 230 : 150))
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(8)
         .overlay(
