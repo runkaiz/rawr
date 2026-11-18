@@ -110,3 +110,56 @@ development wall time, so stage wall times must not be summed. Scenario RSS is
 the process lifetime high-water mark from `getrusage`, not incremental memory.
 Metal allocation samples include live and idle pooled storage, but can miss a
 short-lived intermediate peak. Repeat runs for statistically robust comparisons.
+
+## Measurements (18 November 2026)
+
+Measured on an Apple M2 Pro with 16 GiB RAM, and a 4 GiB/four-CPU macOS build VM
+with the Apple Paravirtual device. Both report macOS 27.2 (26B123), Xcode 27.2.
+Baseline backend: `68ba23c`; optimized backend including current `dev` Auto Crop:
+`fa914c7`. Identical harness and build-script
+SHA-256 values are recorded in the task's source manifests. Baseline-only additions
+are timing markers; no baseline math, IO, allocation or caching policy changed.
+
+| Scenario | M2 Pro before | M2 Pro after | VM before | VM after |
+|---|---:|---:|---:|---:|
+| Cold source preview | 0.376 s | 0.378 s | 2.455 s | 1.195 s |
+| Single TIFF export after editing | 0.480 s | 0.143 s | 2.471 s | 0.357 s |
+| 36-frame TIFF export | 18.024 s | 7.812 s | 86.704 s | 55.998 s |
+| 36-frame calibration | 6.053 s | 5.707 s | 11.055 s | 5.917 s |
+| Slider median (5 edits) | 212.4 ms | 16.1 ms | 613.1 ms | 23.6 ms |
+| Slider slowest | 218.2 ms | 16.6 ms | 1049.8 ms | 44.4 ms |
+
+The M2 Pro slider median improved 13.2×,
+single export 3.4×,
+and roll export 2.3×.
+Cold source preview is effectively unchanged on hardware. The roll used two
+workers on the host and one in the VM.
+
+| Sample | M2 Pro before | M2 Pro after | VM before | VM after |
+|---|---:|---:|---:|---:|
+| Single export process peak RSS | 2774 MiB | 1314 MiB | 1192 MiB | 948 MiB |
+| Roll export process peak RSS | 3706 MiB | 2841 MiB | 1314 MiB | 1316 MiB |
+| Metal allocated after roll export | 3332 MiB | 954 MiB | 2035 MiB | 831 MiB |
+
+RSS is a process-lifetime high-water mark at each scenario, including fixture
+setup and preceding scenarios. Metal samples are allocated bytes at that point,
+not peak residency. The VM's final calibration high-water RSS was
+1431 MiB versus
+1314 MiB before;
+memory is not uniformly lower for every scenario.
+
+Workload: 6000×4000 source → Dust/IR → Negative Develop → Preview, maximum display
+edge 1920. Full-size processing precedes display resampling. Five sequential
+exposure edits use warm source/cleanup caches. Single export follows those edits
+and retains full-resolution inputs. Roll export writes 36 full-resolution TIFFs;
+calibration measures original sources. Auto Crop is validated separately by its
+affine oracle, paired IR ownership and crop-cache integration tests. Generated
+gradients/clear borders and repeated fixture bytes are not a real-scan corpus.
+One full pass per environment; these numbers are not confidence intervals.
+
+All 70 unit tests passed across eight suites on the VM; 1 optional external
+Nikon fixture test was skipped. No UI test target or app window was launched.
+Maximum Float64 development-reference error was 2.574e-7 (limit 1e-5),
+preview/export error 1.526e-5 (limit 4/65535), and crop affine error 6.661e-6
+(limit 1e-4). IR tile output and masks matched the whole-frame reference bit for
+bit at seams and image edges. Existing tolerances were not loosened.
