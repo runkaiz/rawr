@@ -14,6 +14,23 @@ struct AutoCropControls: View {
 
     private var geometry: CropGeometry { settings.geometry(proposal: result?.accepted == true ? result!.proposal : CropGeometry(), source: result?.source, sourceWidth: result?.sourceWidth ?? 0, sourceHeight: result?.sourceHeight ?? 0) }
 
+    private var detectionStatus: LocalizedStringKey {
+        if result?.accepted == true { return "Frame detected · review the crop" }
+        if settings.rollSize != nil { return "Uncertain frame · review before roll export" }
+        if settings.manual != nil { return "Uncertain detection · manual crop applied" }
+        return "Uncertain frame · retained intact"
+    }
+
+    private var mode: LocalizedStringKey {
+        if settings.rollSize != nil { return "Roll size + per-frame center/rotation" }
+        return settings.manual == nil ? "Automatic" : "Manual crop"
+    }
+
+    private var baseStatus: LocalizedStringKey {
+        result?.borderBase.w == 1 ? "Unexposed border available for Negative Develop" :
+            "No reliable unexposed border; metering uses its normal fallback"
+    }
+
     private func field(_ keyPath: WritableKeyPath<CropGeometry, Double>, percent: Bool = true) -> Binding<Double> {
         Binding(get: { geometry[keyPath: keyPath] * (percent ? 100 : 1) }, set: { value in
             var updated = settings
@@ -39,9 +56,7 @@ struct AutoCropControls: View {
             if let result {
                 Text("Confidence: \(Int(result.confidence * 100))%")
                     .foregroundStyle(result.accepted ? .primary : .secondary)
-                Text(result.accepted ? "Frame detected · review the crop" :
-                    (settings.rollSize != nil ? "Uncertain frame · review before roll export" :
-                        (settings.manual != nil ? "Uncertain detection · manual crop applied" : "Uncertain frame · retained intact")))
+                Text(detectionStatus)
                     .font(.caption2).foregroundStyle(.secondary)
                 CropOutline(geometry: geometry, sourceWidth: result.sourceWidth, sourceHeight: result.sourceHeight)
                     .frame(height: 100)
@@ -51,7 +66,7 @@ struct AutoCropControls: View {
             } else {
                 Text("Connect a source and process to detect its frame.").font(.caption2)
             }
-            Text(settings.rollSize != nil ? "Roll size + per-frame center/rotation" : (settings.manual == nil ? "Automatic" : "Manual crop"))
+            Text(mode)
                 .fontWeight(.medium)
             Text("Center and size: % of source. Y from top.").font(.caption2).foregroundStyle(.secondary)
             Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 5) {
@@ -99,7 +114,7 @@ struct AutoCropControls: View {
                 next.useBorderForBase = $0
                 onChange(next)
             }))
-            Text(result?.borderBase.w == 1 ? "Unexposed border available for Negative Develop" : "No reliable unexposed border; metering uses its normal fallback")
+            Text(baseStatus)
                 .font(.caption2).foregroundStyle(.secondary)
         }.font(.caption).padding(.horizontal, 12)
     }
