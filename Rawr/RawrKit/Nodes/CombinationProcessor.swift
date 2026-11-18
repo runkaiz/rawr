@@ -77,7 +77,9 @@ public class CombinationProcessor: MetalNodeProcessor {
             context.log("Combination GPU failed", level: .error)
             return nil
         }
-        let outputData = ImageData(lease: outputLease, metadata: inputA.metadata)
+        var metadata = inputA.metadata
+        metadata.legacyFloatOutput = true
+        let outputData = ImageData(lease: outputLease, metadata: metadata)
 
         context.log("Combination completed successfully")
         return ["Output": outputData]

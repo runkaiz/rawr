@@ -781,7 +781,8 @@ public class RawrKit: ObservableObject {
             switch format {
             case .tiff:
                 try context.linearCIContext.writeTIFFRepresentation(of: image, to: temporary,
-                    format: output.texture.pixelFormat == .rgba16Float ? .RGBAh : .RGBA16, colorSpace: colorSpace, options: [:])
+                    format: output.metadata.legacyFloatOutput ? .RGBAh : .RGBA16,
+                    colorSpace: output.metadata.legacyFloatOutput ? NegativeImageIO.colorSpace : colorSpace, options: [:])
             case .png:
                 try context.linearCIContext.writePNGRepresentation(of: image, to: temporary, format: .RGBA16, colorSpace: colorSpace, options: [:])
             case .jpeg(let quality):

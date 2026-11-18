@@ -64,7 +64,9 @@ public class InversionProcessor: MetalNodeProcessor {
             context.log("Inversion GPU failed", level: .error)
             return nil
         }
-        let outputData = ImageData(lease: outputLease, metadata: inputData.metadata)
+        var metadata = inputData.metadata
+        metadata.legacyFloatOutput = true
+        let outputData = ImageData(lease: outputLease, metadata: metadata)
 
         context.log("Inversion completed successfully")
         return ["Output": outputData]

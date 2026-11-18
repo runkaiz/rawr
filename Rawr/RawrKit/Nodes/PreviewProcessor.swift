@@ -26,7 +26,7 @@ public class PreviewProcessor: MetalNodeProcessor {
         guard inputData.cgImage == nil || displayMask != nil else { return ["Output": inputData] }
         let limit = context.logger.map { $0.isFullResolutionMode ? nil : $0.maxPreviewDimension } ?? nil
         let displayTexture = displayMask ?? inputData.texture
-        guard let image = NegativeImageIO.boundaryImage(displayTexture, context: context.linearCIContext, maxDimension: limit) else {
+        guard let image = NegativeImageIO.boundaryImage(displayTexture, context: context.linearCIContext, maxDimension: limit, legacyFloat: displayMask == nil && inputData.metadata.legacyFloatOutput) else {
             context.log("Failed to render terminal image", level: .error)
             return nil
         }

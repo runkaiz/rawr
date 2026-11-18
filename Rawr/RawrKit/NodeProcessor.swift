@@ -33,6 +33,7 @@ public struct ImageMetadata {
     public var orientation: UInt32 = 1
     public var domain: ImageDomain = .unspecified
     var sourceURL: URL?
+    var legacyFloatOutput = false
     var dustMaskLease: TextureLease?
     var dustMaskPreview: MTLTexture?
 
@@ -169,7 +170,7 @@ open class MetalNodeProcessor: NodeProcessor {
     /// supports private textures and both float formats without reinterpreting
     /// float32 bytes as half floats. Pass a reusable context when calling often.
     public func createCGImage(from texture: MTLTexture, context: CIContext? = nil) -> CGImage? {
-        let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
+        let colorSpace = NegativeImageIO.colorSpace
         guard let image = CIImage(mtlTexture: texture, options: [.colorSpace: colorSpace]) else { return nil }
         let renderer = context ?? CIContext(mtlDevice: texture.device)
         return renderer.createCGImage(image, from: image.extent,

@@ -63,6 +63,7 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
         }
         var metadata = input.metadata
         metadata.domain = .positiveLinear
+        metadata.legacyFloatOutput = false
         return ["Output": ImageData(lease: outputLease, metadata: metadata)]
     }
 }

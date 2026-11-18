@@ -157,6 +157,7 @@ struct PerformanceTests {
             let output = try #require(await processor.process(inputs: inputs, node: node, context: context)?["Output"])
             #expect(output.cgImage == nil)
             #expect(output.texture.storageMode == .private)
+            #expect(output.metadata.legacyFloatOutput)
             #expect(!output.textureLeases.isEmpty)
             let boundary = try #require(MetalNodeProcessor(nodeType: node.type).createCGImage(
                 from: output.texture, context: context.linearCIContext))
@@ -199,36 +200,45 @@ struct PerformanceTests {
     }
 
     @MainActor
-    @Test func `Streamed legacy TIFF export preserves values above display white`() async throws {
+    @Test(arguments: [false, true])
+    func `Streamed legacy TIFF export preserves values above display white`(negative: Bool) async throws {
         let context = try context()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("linear.tiff")
         let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
-        let color = try #require(CIColor(red: 0.75, green: 0.5, blue: 0.25, colorSpace: colorSpace))
+        let color = try #require(CIColor(red: negative ? 0.1 : 0.75, green: negative ? 0.1 : 0.5,
+            blue: negative ? 0.1 : 0.25, colorSpace: colorSpace))
         let image = CIImage(color: color)
             .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
         try context.linearCIContext.writeTIFFRepresentation(of: image, to: url, format: .RGBAh, colorSpace: colorSpace, options: [:])
         var source = NodeData(type: .imageInput, position: .zero)
         source.imageURL = url
         var exposure = NodeData(type: .exposure, position: .zero)
-        exposure.parameters["stops"] = 1
+        exposure.parameters["stops"] = negative ? 2 : 1
         let preview = NodeData(type: .preview, position: .zero)
-        let graph = NodeGraph(nodes: [source, exposure, preview], connections: [
-            Connection(fromNodeId: source.id, fromOutput: "Image", toNodeId: exposure.id, toInput: "Input"),
-            Connection(fromNodeId: exposure.id, fromOutput: "Output", toNodeId: preview.id, toInput: "Input")
-        ])
+        var nodes = [source]
+        if negative {
+            var develop = NodeData(type: .negativeDevelop, position: .zero)
+            for key in ["autoBase", "autoEndpoints", "autoBalance"] { develop.parameters[key] = 0 }
+            nodes.append(develop)
+        }
+        nodes += [exposure, preview]
+        let graph = NodeGraph(nodes: nodes, connections: (1..<nodes.count).map { index in
+            Connection(fromNodeId: nodes[index-1].id, fromOutput: index == 1 ? "Image" : "Output",
+                toNodeId: nodes[index].id, toInput: "Input")
+        })
         let exported = root.appendingPathComponent("positive.tiff")
         let kit = RawrKit()
         try #require(await kit.exportImage(graph, to: exported))
         let result = try ImageDecoder(context: context.linearCIContext).decode(url: exported)
         var pixel = SIMD4<Float>.zero
         context.linearCIContext.render(CIImage(cgImage: result), toBitmap: &pixel, rowBytes: 16,
-            bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: colorSpace)
-        #expect(abs(pixel.x - 1.5) < 0.003)
-        #expect(abs(pixel.y - 1) < 0.003)
-        #expect(abs(pixel.z - 0.5) < 0.003)
+            bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: NegativeImageIO.colorSpace)
+        #expect(abs(pixel.x - (negative ? 2 : 1.5)) < 0.003)
+        #expect(abs(pixel.y - (negative ? 2 : 1)) < 0.003)
+        #expect(abs(pixel.z - (negative ? 2 : 0.5)) < 0.003)
     }
 
     @MainActor

@@ -73,7 +73,9 @@ public class GammaProcessor: MetalNodeProcessor {
             context.log("Gamma GPU failed", level: .error)
             return nil
         }
-        let outputData = ImageData(lease: outputLease, metadata: inputData.metadata)
+        var metadata = inputData.metadata
+        metadata.legacyFloatOutput = true
+        let outputData = ImageData(lease: outputLease, metadata: metadata)
 
         context.log("Gamma correction completed successfully")
         return ["Output": outputData]

@@ -77,7 +77,7 @@ enum NegativeImageIO {
         command.waitUntilCompleted()
     }
 
-    static func boundaryImage(_ texture: MTLTexture, context: CIContext, maxDimension: CGFloat? = nil) -> CGImage? {
+    static func boundaryImage(_ texture: MTLTexture, context: CIContext, maxDimension: CGFloat? = nil, legacyFloat: Bool = false) -> CGImage? {
         guard var image = CIImage(mtlTexture: texture, options: [.colorSpace: colorSpace]) else { return nil }
         if let limit = maxDimension, limit.isFinite, limit > 0,
            max(image.extent.width, image.extent.height) > limit {
@@ -85,7 +85,7 @@ enum NegativeImageIO {
             image = image.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
         }
         // Profiled unsigned 16-bit linear TIFF/preview, quantized only here.
-        return context.createCGImage(image, from: image.extent, format: texture.pixelFormat == .rgba16Float ? .RGBAh : .RGBA16,
-            colorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!, deferred: false)
+        return context.createCGImage(image, from: image.extent, format: legacyFloat ? .RGBAh : .RGBA16,
+            colorSpace: legacyFloat ? colorSpace : CGColorSpace(name: CGColorSpace.linearSRGB)!, deferred: false)
     }
 }

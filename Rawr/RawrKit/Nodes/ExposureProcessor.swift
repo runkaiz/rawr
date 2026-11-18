@@ -71,7 +71,9 @@ public class ExposureProcessor: MetalNodeProcessor {
             context.log("Exposure GPU failed", level: .error)
             return nil
         }
-        let outputData = ImageData(lease: outputLease, metadata: inputData.metadata)
+        var metadata = inputData.metadata
+        metadata.legacyFloatOutput = true
+        let outputData = ImageData(lease: outputLease, metadata: metadata)
 
         context.log("Exposure adjustment completed successfully")
         return ["Output": outputData]
