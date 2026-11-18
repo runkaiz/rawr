@@ -40,16 +40,8 @@ public class CombinationProcessor: MetalNodeProcessor {
             return nil
         }
 
-        // Create output texture
-        let textureDescriptor = MTLTextureDescriptor()
-        textureDescriptor.pixelFormat = textureA.pixelFormat
-        textureDescriptor.width = textureA.width
-        textureDescriptor.height = textureA.height
-        textureDescriptor.usage = [.shaderRead, .shaderWrite]
-        textureDescriptor.storageMode = .private
-
-        guard let outputLease = context.resources.texture(format: textureDescriptor.pixelFormat,
-            width: textureDescriptor.width, height: textureDescriptor.height) else {
+        guard let outputLease = context.resources.texture(format: textureA.pixelFormat,
+            width: textureA.width, height: textureA.height) else {
             context.log("Failed to create output texture", level: .error)
             return nil
         }

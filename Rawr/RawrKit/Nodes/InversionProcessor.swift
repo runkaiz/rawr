@@ -28,16 +28,8 @@ public class InversionProcessor: MetalNodeProcessor {
 
         let inputTexture = inputData.texture
 
-        // Create output texture
-        let textureDescriptor = MTLTextureDescriptor()
-        textureDescriptor.pixelFormat = inputTexture.pixelFormat
-        textureDescriptor.width = inputTexture.width
-        textureDescriptor.height = inputTexture.height
-        textureDescriptor.usage = [.shaderRead, .shaderWrite]
-        textureDescriptor.storageMode = .private
-
-        guard let outputLease = context.resources.texture(format: textureDescriptor.pixelFormat,
-            width: textureDescriptor.width, height: textureDescriptor.height) else {
+        guard let outputLease = context.resources.texture(format: inputTexture.pixelFormat,
+            width: inputTexture.width, height: inputTexture.height) else {
             context.log("Failed to create output texture", level: .error)
             return nil
         }
