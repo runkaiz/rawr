@@ -55,6 +55,8 @@ public class NodeUIFactory {
 
         register(descriptor: NodeUIDescriptor(nodeType: .negativeDevelop, components: [NegativeDevelopComponent()]))
 
+        register(descriptor: NodeUIDescriptor(nodeType: .dustRemoval, components: [DustRemovalComponent()]))
+
         // Exposure Node
         register(descriptor: NodeUIDescriptor(
             nodeType: .exposure,

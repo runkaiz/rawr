@@ -8,6 +8,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     case negativeDevelop = "Negative Develop"
     case exposure = "Exposure"
     case gamma = "Gamma"
+    case dustRemoval = "Dust Removal"
     case denoise = "Denoise"
     case sharpening = "Sharpening"
     case combination = "Combination"
@@ -21,6 +22,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .negativeDevelop: return "camera.filters"
         case .exposure: return "sun.max"
         case .gamma: return "slider.horizontal.3"
+        case .dustRemoval: return "bubbles.and.sparkles"
         case .denoise: return "waveform.path"
         case .sharpening: return "sparkles"
         case .combination: return "square.stack.3d.down.right"
@@ -33,7 +35,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .imageInput: return 1
         case .folderInput: return 1
         case .preview: return 1
-        case .negativeDevelop, .inversion, .exposure, .gamma, .denoise, .sharpening, .combination: return nil
+        case .dustRemoval, .negativeDevelop, .inversion, .exposure, .gamma, .denoise, .sharpening, .combination: return nil
         }
     }
 }
@@ -46,6 +48,9 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
     public var outputs: [String] = []
     public var imageURL: URL?
     public var imageBookmark: Data? // Security-scoped bookmark data
+    public var infraredURL: URL?
+    public var infraredBookmark: Data?
+    public var healSpots: [HealSpot] = []
     public var rollBaseline: RollBaseline?
     public var parameters: [String: Double] = [:] // Node-specific parameters
 
@@ -76,6 +81,10 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             self.inputs = ["Input"]
             self.outputs = ["Output"]
             self.parameters = ["gamma": 2.2] // Default: sRGB standard gamma
+        case .dustRemoval:
+            self.inputs = ["Input"]
+            self.outputs = ["Output", "Mask"]
+            self.parameters = DustParameters.defaults
         case .denoise:
             self.inputs = ["Input"]
             self.outputs = ["Output"]
@@ -106,6 +115,9 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
         position = try container.decode(CGPoint.self, forKey: .position)
         imageURL = try container.decodeIfPresent(URL.self, forKey: .imageURL)
         imageBookmark = try container.decodeIfPresent(Data.self, forKey: .imageBookmark)
+        infraredURL = try container.decodeIfPresent(URL.self, forKey: .infraredURL)
+        infraredBookmark = try container.decodeIfPresent(Data.self, forKey: .infraredBookmark)
+        healSpots = try container.decodeIfPresent([HealSpot].self, forKey: .healSpots) ?? []
         rollBaseline = try container.decodeIfPresent(RollBaseline.self, forKey: .rollBaseline)
         parameters = try container.decodeIfPresent([String: Double].self, forKey: .parameters) ?? [:]
 
@@ -141,6 +153,10 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             if parameters["gamma"] == nil {
                 parameters["gamma"] = 2.2
             }
+        case .dustRemoval:
+            inputs = ["Input"]
+            outputs = ["Output", "Mask"]
+            parameters.merge(DustParameters.defaults) { saved, _ in saved }
         case .denoise:
             inputs = ["Input"]
             outputs = ["Output"]

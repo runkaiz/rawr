@@ -6,10 +6,12 @@ import CoreImage
 public struct ImageData {
     public let contentID: UUID
     public let texture: MTLTexture
+    public let infraredTexture: MTLTexture?
     public let cgImage: CGImage?
     public let metadata: ImageMetadata
 
-    public init(texture: MTLTexture, cgImage: CGImage? = nil, metadata: ImageMetadata = ImageMetadata(), contentID: UUID = UUID()) {
+    public init(texture: MTLTexture, cgImage: CGImage? = nil, metadata: ImageMetadata = ImageMetadata(), contentID: UUID = UUID(), infraredTexture: MTLTexture? = nil) {
+        self.infraredTexture = infraredTexture
         self.contentID = contentID
         self.texture = texture
         self.cgImage = cgImage
@@ -25,6 +27,7 @@ public struct ImageMetadata {
     public var orientation: UInt32 = 1
     public var domain: ImageDomain = .unspecified
     var sourceURL: URL?
+    var dustMaskPreview: MTLTexture?
 
     public init(width: Int = 0, height: Int = 0, colorSpace: CGColorSpace? = nil, orientation: UInt32 = 1) {
         self.width = width

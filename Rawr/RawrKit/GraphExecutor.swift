@@ -26,6 +26,7 @@ public actor GraphExecutor {
             FolderInputProcessor(),
             InversionProcessor(context: context),
             NegativeDevelopProcessor(context: context),
+            DustRemovalProcessor(context: context),
             ExposureProcessor(context: context),
             GammaProcessor(context: context),
             DenoiseProcessor(context: context),
@@ -49,17 +50,27 @@ public actor GraphExecutor {
             context.log(error, level: .error)
             return [:]
         }
-        // This slice has an explicit decode contract: development connects directly
-        // to a source, never to a legacy complement/gamma/half-processing node.
+        // Both cleanup and development operate on full-size linear float sources.
         context.negativeInputIDs = []
-        for node in nodeGraph.nodes where node.type == .negativeDevelop {
-            guard let edge = nodeGraph.connections.first(where: { $0.toNodeId == node.id }),
-                  let source = nodeGraph.nodes.first(where: { $0.id == edge.fromNodeId }),
-                  source.type == .imageInput || source.type == .folderInput else {
-                context.log("Negative Develop requires a direct Image Input or Folder Input connection", level: .error)
-                return [:]
+        for node in nodeGraph.nodes where node.type == .negativeDevelop || node.type == .dustRemoval {
+            var current = node
+            while true {
+                guard let edge = nodeGraph.connections.first(where: { $0.toNodeId == current.id && $0.toInput == "Input" }),
+                      let source = nodeGraph.nodes.first(where: { $0.id == edge.fromNodeId }),
+                      edge.fromOutput != "Mask" else {
+                    context.log("Cleanup/development requires a source through Dust Removal Output", level: .error)
+                    return [:]
+                }
+                if source.type == .imageInput || source.type == .folderInput {
+                    context.negativeInputIDs.insert(source.id)
+                    break
+                }
+                guard source.type == .dustRemoval else {
+                    context.log("Cleanup/development requires linear source data; place it before legacy effects", level: .error)
+                    return [:]
+                }
+                current = source
             }
-            context.negativeInputIDs.insert(source.id)
         }
         context.log("Starting graph execution with \(nodeGraph.nodes.count) nodes")
 

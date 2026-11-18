@@ -277,7 +277,7 @@ public class RawrKit: ObservableObject {
             log("No preview outputs generated", level: .warning)
             return false
         }
-        if graph.nodes.contains(where: { $0.type == .negativeDevelop }), let texture = negativeSourceTexture {
+        if graph.nodes.contains(where: { $0.type == .negativeDevelop || $0.type == .dustRemoval }), let texture = negativeSourceTexture {
             previewImage = NegativeImageIO.boundaryImage(texture, context: processingContext?.linearCIContext ?? ciContext, maxDimension: maxPreviewDimension)
         } else if let before = await getSourceImage(from: graph) {
             previewImage = createPreview(from: before)
