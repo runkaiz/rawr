@@ -212,8 +212,7 @@ The node shows the version, confidence, accepted count, RGB base, density
 endpoints, neutral shift/slope, and selected frame's participation/alignment.
 **Frame exposure trim (EV)** adds to the node's print exposure. **Use individual
 frame settings** bypasses shared calibration and density alignment for that
-frame, using the node's normal auto/manual groups. **Override frame with current
-node settings** snapshots the manual numeric fields into a saved frame override;
+frame, using the node's normal auto/manual groups. **Save frame override** snapshots the node’s manual numeric fields into a saved frame override;
 it sets automatic groups off and density alignment to zero. Clear that override
 to resume normal selection. A saved frame override takes precedence over node
 and roll values, including exposure. Manual node groups take precedence over
@@ -236,6 +235,10 @@ above and standard robust statistics. No NegPy source was read, copied, linked,
 or executed for this feature. The synthetic roll tests specify their own known
 base, cast, exposure shifts and outliers, verify positive neutral agreement,
 exercise saved overrides/opt-out, round-trip document data, and perform actual
-folder measurement and batch TIFF export. The 36 x 24 MP benchmark measures
-GPU synthetic-source generation, frame metering and roll reduction separately;
-it excludes real-file decoding and export, and reports the VM's Metal device.
+folder measurement and batch TIFF export. The GPU-only 36 x 24 MP benchmark measures synthetic-source generation, frame
+metering and roll reduction separately. A second end-to-end benchmark writes 36
+24 MP profiled TIFF fixtures, times folder measurement including decode, saves
+and reloads the flow, then times all 36 TIFF exports including decode, develop
+and disk writes. Fixture preparation is reported separately. Both report the
+VM's Metal device. The smooth synthetic gradients and warm filesystem do not
+establish real camera-RAW/scanner throughput.
