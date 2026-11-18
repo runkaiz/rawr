@@ -93,12 +93,24 @@ struct DustImportTests {
             Connection(fromNodeId:input.id,fromOutput:"Image",toNodeId:dust.id,toInput:"Input"),
             Connection(fromNodeId:dust.id,fromOutput:"Output",toNodeId:develop.id,toInput:"Input"),
             Connection(fromNodeId:develop.id,fromOutput:"Output",toNodeId:preview.id,toInput:"Input")])
-        let restored=try JSONDecoder().decode(NodeGraph.self,from:JSONEncoder().encode(graph))
+        var restored=try JSONDecoder().decode(NodeGraph.self,from:JSONEncoder().encode(graph))
         #expect(restored.nodes[1].infraredURL==separate)
         #expect(restored.nodes[1].infraredBookmark==dust.infraredBookmark)
         try #require(await kit.executeGraph(restored))
         #expect(kit.logs.contains { $0.message.contains("infrared ratio") })
+        let normalPreview=try #require(kit.processedPreviewImage?.dataProvider?.data) as Data
         try #require(await kit.exportImage(restored,to:root.appendingPathComponent("positive.tiff")))
+        restored.nodes[1].parameters["maskPreview"]=1
+        try #require(await kit.executeGraph(restored))
+        let maskPreview=try #require(kit.processedPreviewImage?.dataProvider?.data) as Data
+        #expect(maskPreview != normalPreview)
+        try #require(await kit.exportImage(restored,to:root.appendingPathComponent("mask-toggle-export.tiff")))
+        func exportedPixels(_ name: String) throws -> Data {
+            let s=try #require(CGImageSourceCreateWithURL(root.appendingPathComponent(name) as CFURL,nil))
+            let image=try #require(CGImageSourceCreateImageAtIndex(s,0,nil))
+            return try #require(image.dataProvider?.data) as Data
+        }
+        #expect(try exportedPixels("positive.tiff") == exportedPixels("mask-toggle-export.tiff"))
         var noIR=restored
         noIR.nodes[1].infraredURL=nil; noIR.nodes[1].infraredBookmark=nil
         noIR.nodes[1].parameters["useIR"]=0
