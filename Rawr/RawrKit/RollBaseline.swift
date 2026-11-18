@@ -21,7 +21,7 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
     /// Manual group switches retain priority. A frame override is a sparse set
     /// of manual values; setting any group disables its automatic switch.
     func parameters(for url: URL, node: [String: Double]) -> [String: Double]? {
-        guard isSupported, url.deletingLastPathComponent().standardizedFileURL == folder.standardizedFileURL,
+        guard isSupported, url.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path,
               let frame = frames.first(where: { $0.name == url.lastPathComponent }), frame.matches(url) else { return nil }
         var result = node
         if !frame.optOut {
@@ -38,7 +38,7 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
             result["auto" + group] = 0
         }
         result.merge(frame.overrides) { _, value in value }
-        return result
+        return NegativeDevelopParameters(result) == nil ? nil : result
     }
 
     static func keys(_ group: String) -> [String] {

@@ -128,6 +128,9 @@ struct RollBaselineTests {
         #expect(abs(p["exposure"]! - 0.6) < 1e-10 && p["rollDensityShift"] == Double(Float(0.2)))
         node.parameters["autoBase"] = 0; node.parameters["baseR"] = 0.9
         #expect(roll.parameters(for: url, node: node.parameters)?["baseR"] == 0.9)
+        node.parameters["exposure"] = 8
+        #expect(roll.parameters(for: url, node: node.parameters) == nil)
+        node.parameters["exposure"] = 0.2
         roll.frames[0].overrides = ["baseR": 0.7, "exposure": -1]
         p = try #require(roll.parameters(for: url, node: node.parameters))
         #expect(p["baseR"] == 0.7 && p["autoBase"] == 0 && p["exposure"] == -1)
@@ -173,6 +176,9 @@ struct RollBaselineTests {
         let roll = try #require(await kit.measureRoll(graph, nodeID: develop.id))
         #expect(roll.frames.count == 5 && roll.frames.allSatisfy(\.included))
         graph.nodes[1].rollBaseline = roll
+        for frame in roll.frames {
+            #expect(roll.parameters(for: inputs.appendingPathComponent(frame.name), node: develop.parameters) != nil)
+        }
         graph = try JSONDecoder().decode(NodeGraph.self, from: JSONEncoder().encode(graph))
         try #require(await kit.exportFolderBatch(graph, to: output, format: .tiff))
         let files = try FileManager.default.contentsOfDirectory(at: output, includingPropertiesForKeys: nil).sorted { $0.path < $1.path }
@@ -219,6 +225,58 @@ struct RollBaselineTests {
         Attachment.record("36 x 24 MP (6000x4000), device \(ctx.device.name); metering wall \(wall)s, GPU \(gpu)s; roll reduction wall \(reduceWall)s GPU \(reduction.gpuSeconds)s; including GPU fixture generation \(Date().timeIntervalSince(totalStart))s. One reused 384 MB input texture; no decode/export in this benchmark.", named: "roll-36x24mp-performance")
     }
 
+    @Test func `36 frame 24 MP folder measurement and TIFF batch export record end to end timings`() async throws {
+        let ctx = try context(), root = FileManager.default.temporaryDirectory.appendingPathComponent("Roll36EndToEnd-\(UUID())")
+        let inputs = root.appendingPathComponent("inputs"), output = root.appendingPathComponent("output")
+        try FileManager.default.createDirectory(at: inputs, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var texture: MTLTexture?
+        let fixtureStart = Date()
+        for i in 0..<36 {
+            let image = try await fixture(ctx, shift: Float(i%9-4)*0.05, width: 6000, height: 4000, texture: texture)
+            texture = image.texture
+            let url = inputs.appendingPathComponent(String(format: "frame%02d.tiff", i))
+            try autoreleasepool {
+                let cg = try #require(NegativeImageIO.boundaryImage(image.texture, context: ctx.linearCIContext))
+                let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.tiff.identifier as CFString, 1, nil))
+                let properties = [kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFCompression: 5]] as CFDictionary
+                CGImageDestinationAddImage(destination, cg, properties)
+                try #require(CGImageDestinationFinalize(destination))
+            }
+        }
+        texture = nil
+        let fixtureSeconds = Date().timeIntervalSince(fixtureStart)
+        var source = NodeData(type: .folderInput, position: .zero); source.imageURL = inputs
+        let develop = NodeData(type: .negativeDevelop, position: .zero), preview = NodeData(type: .preview, position: .zero)
+        var graph = NodeGraph(nodes: [source, develop, preview], connections: [
+            Connection(fromNodeId: source.id, fromOutput: "Image", toNodeId: develop.id, toInput: "Input"),
+            Connection(fromNodeId: develop.id, fromOutput: "Output", toNodeId: preview.id, toInput: "Input")])
+        let kit = RawrKit(), measureStart = Date()
+        let roll = try #require(await kit.measureRoll(graph, nodeID: develop.id))
+        let measurementSeconds = Date().timeIntervalSince(measureStart)
+        #expect(roll.frames.count == 36 && roll.frames.allSatisfy(\.included))
+        graph.nodes[1].rollBaseline = roll
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let flow = FlowDocument(version: "1.0", sourceFile: nil, metadata: DocumentMetadata(), nodeGraph: graph)
+        graph = try decoder.decode(FlowDocument.self, from: encoder.encode(flow)).nodeGraph
+        let exportStart = Date()
+        try #require(await kit.exportFolderBatch(graph, to: output, format: .tiff))
+        let exportSeconds = Date().timeIntervalSince(exportStart)
+        let files = try FileManager.default.contentsOfDirectory(at: output, includingPropertiesForKeys: [.fileSizeKey])
+        #expect(files.count == 36)
+        var bytes: Int64 = 0
+        for url in files {
+            let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+            let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+            #expect((properties[kCGImagePropertyPixelWidth] as? Int) == 6000)
+            #expect((properties[kCGImagePropertyPixelHeight] as? Int) == 4000)
+            bytes += Int64(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
+        }
+        Attachment.record("36 x 24 MP TIFF files, device \(ctx.device.name); fixture generation/write \(fixtureSeconds)s (excluded); folder measurement incl decode \(measurementSeconds)s; batch export incl decode/develop/16-bit linear TIFF write \(exportSeconds)s; output bytes \(bytes). Saved .flow roundtrip before export. Synthetic smooth gradients, warm filesystem; no real-scan throughput claim.", named: "roll-36x24mp-end-to-end-performance")
+    }
+
     @Test func `Roll and selected frame controls render without an app window`() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("RollUI-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -233,10 +291,20 @@ struct RollBaselineTests {
             Divider()
             NegativeDevelopControls(parameters: automatic, onChange: { _ in })
         }.padding().frame(width: 360).background(.white).environment(\.colorScheme, .light)
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
-        let cg = try #require(renderer.cgImage)
-        let png = try #require(NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]))
+        // ImageRenderer cannot flatten AppKit-backed TextFields. Capture an
+        // offscreen hosting view so native controls are visible, without a window.
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(x: 0, y: 0, width: 360, height: 900)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let cg = try #require(bitmap.cgImage)
+        let canvas = try #require(CGContext(data: nil, width: cg.width, height: cg.height,
+            bitsPerComponent: 8, bytesPerRow: cg.width*4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        canvas.setFillColor(CGColor(gray: 1, alpha: 1)); canvas.fill(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        canvas.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let png = try #require(NSBitmapImageRep(cgImage: try #require(canvas.makeImage())).representation(using: .png, properties: [:]))
         Attachment.record(png, named: "roll-consistency-controls.png")
         if let path = ProcessInfo.processInfo.environment["RAWR_PROOF_DIR"] {
             try png.write(to: URL(fileURLWithPath: path).appendingPathComponent("roll-consistency-controls.png"))
