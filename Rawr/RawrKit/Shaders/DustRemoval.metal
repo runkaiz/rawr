@@ -109,7 +109,8 @@ kernel void dustMask(texture2d<float, access::read> image [[texture(0)]],
     float2 size=float2(image.get_width(),image.get_height());
     for(uint k=0;k<p.flags.y;++k) {
         float radius=max(1.0f,spots[k].z*min(size.x,size.y));
-        float distance=length(float2(q)+0.5f-spots[k].xy*size)/radius;
+        float2 center=float2(spots[k].x,1-spots[k].y)*size;
+        float distance=length(float2(q)+0.5f-center)/radius;
         score=max(score,1-smoothstep(0.65f,1.0f,distance));
     }
     mask.write(float4(score),q);
@@ -129,7 +130,8 @@ kernel void dustRepair(texture2d<float, access::read> image [[texture(0)]],
     float2 size=float2(image.get_width(),image.get_height());
     for(uint k=0;k<p.flags.y;++k) {
         float r=spots[k].z*min(size.x,size.y);
-        if(length(float2(q)+0.5f-spots[k].xy*size)<r) radius=max(radius,int(ceil(r))+2);
+        float2 center=float2(spots[k].x,1-spots[k].y)*size;
+        if(length(float2(q)+0.5f-center)<r) radius=max(radius,int(ceil(r))+2);
     }
     float noise;
     float3 guide=opticalReference(image,int2(q),radius,noise);

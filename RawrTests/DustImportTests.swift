@@ -41,7 +41,8 @@ struct DustImportTests {
         for i in 0..<4 { data[stripEntry+i]=UInt8((offset >> (8*(little ? i : 3-i))) & 255) }
         for y in 0..<h { for x in 0..<w {
             let dirty=x==10 && y==10
-            for v in [dirty ? 8000 : 28000, dirty ? 8000 : 28000, dirty ? 8000 : 28000, dirty ? 8000 : 54000] { append(v,bytes:2) }
+            for v in [dirty ? 8000 : 28000, dirty ? 8000 : 28000, dirty ? 8000 : 28000,
+                extra == 2 ? 65535 : (dirty ? 8000 : 54000)] { append(v,bytes:2) }
         } }
         try data.write(to:url)
     }
@@ -70,8 +71,14 @@ struct DustImportTests {
         #expect(abs(try #require(samples.max())-54000.0/65535.0)<0.0001)
         #expect(abs(try #require(samples.min())-8000.0/65535.0)<0.0001)
         let alpha=root.appendingPathComponent("alpha.tiff")
-        try scanner(alpha,little:little,extra:2)
+        try scanner(alpha,little:little,extra:2,orientation:6)
         #expect(try InfraredImageIO.scannerTIFF(url:alpha,context:ctx)==nil)
+        let ordinary=try NegativeImageIO.load(url:alpha,context:ctx)
+        let scannerImage=try #require(NegativeImageIO.boundaryImage(source.texture,context:ctx.linearCIContext))
+        let ordinaryImage=try #require(NegativeImageIO.boundaryImage(ordinary.texture,context:ctx.linearCIContext))
+        let scannerBytes=try #require(scannerImage.dataProvider?.data) as Data
+        let ordinaryBytes=try #require(ordinaryImage.dataProvider?.data) as Data
+        #expect(scannerBytes==ordinaryBytes, "Embedded IR extraction must retain ImageIO orientation and RGB values")
         let unsupported=root.appendingPathComponent("compressed.tiff")
         try scanner(unsupported,little:little,compression:5)
         #expect(throws: InfraredImageIO.ScannerError.self) { try InfraredImageIO.scannerTIFF(url:unsupported,context:ctx) }

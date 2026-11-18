@@ -126,7 +126,7 @@ struct DustRemovalTests {
         let index = 40 * w + 30
         damaged[index] -= SIMD4(0.05, 0.05, 0.05, 0)
         var node = NodeData(type: .dustRemoval, position: .zero)
-        node.healSpots = [HealSpot(x: 30.5 / 128, y: 40.5 / 96, radius: 0.025)]
+        node.healSpots = [HealSpot(x: 30.5 / 128, y: 1 - 40.5 / 96, radius: 0.025)]
         let flow = FlowDocument(version: "1.0", sourceFile: nil, metadata: DocumentMetadata(), nodeGraph: NodeGraph(nodes: [node]))
         let restored = try JSONDecoder().decode(FlowDocument.self, from: JSONEncoder().encode(flow))
         let saved = try #require(restored.nodeGraph.nodes.first)
