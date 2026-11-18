@@ -14,6 +14,9 @@ enum BatchMemoryPolicy {
     }
 
     static func workerCount(urls: [URL], graph: NodeGraph, device: MTLDevice) -> Int {
+        // An additional fixed source can have unrelated dimensions. Keep the
+        // conservative single-frame path rather than underestimate its memory.
+        guard graph.nodes.filter({ $0.type == .imageInput || $0.type == .folderInput }).count == 1 else { return 1 }
         var maximum: UInt64 = 0
         for url in urls {
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -26,10 +29,16 @@ enum BatchMemoryPolicy {
                   w.uint64Value <= 16384, h.uint64Value <= 16384 else { return 1 }
             maximum = max(maximum, w.uint64Value * h.uint64Value)
         }
-        // Additional full-resolution graph branches/effects increase live memory.
-        let effects = graph.nodes.filter { $0.type != .imageInput && $0.type != .folderInput && $0.type != .preview }.count
-        let adjusted = maximum * UInt64(max(1, effects)) / 2
+        let adjusted = peakPixels(maximum, graph: graph)
         return min(max(1, urls.count), workers(pixels: max(maximum, adjusted), recommendedBytes: device.recommendedMaxWorkingSetSize,
             physicalBytes: ProcessInfo.processInfo.physicalMemory))
+    }
+
+    static func peakPixels(_ pixels: UInt64, graph: NodeGraph) -> UInt64 {
+        // Linear chains release each ancestor at its last consumer. Fanout can
+        // retain an additional frame while another branch executes.
+        let consumers = Dictionary(grouping: graph.connections, by: \.fromNodeId)
+        let branches = consumers.values.reduce(0) { $0 + max(0, $1.count - 1) }
+        return pixels * UInt64(1 + branches)
     }
 }

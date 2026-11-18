@@ -277,6 +277,26 @@ struct PerformanceTests {
         #expect(BatchMemoryPolicy.workers(pixels: 1, recommendedBytes: 0, physicalBytes: 0) == 1)
     }
 
+    @Test func `Linear crop and cleanup reuse memory while branches reserve extra frames`() {
+        let nodes = [NodeData(type: .folderInput, position: .zero), NodeData(type: .autoCrop, position: .zero),
+            NodeData(type: .dustRemoval, position: .zero), NodeData(type: .negativeDevelop, position: .zero),
+            NodeData(type: .exposure, position: .zero), NodeData(type: .preview, position: .zero)]
+        var graph = NodeGraph(nodes: nodes, connections: (1..<nodes.count).map { i in
+            Connection(fromNodeId: nodes[i-1].id, fromOutput: i == 1 ? "Image" : "Output", toNodeId: nodes[i].id, toInput: "Input")
+        })
+        #expect(BatchMemoryPolicy.peakPixels(24_000_000, graph: graph) == 24_000_000)
+        let combination = NodeData(type: .combination, position: .zero)
+        graph.nodes[4] = combination
+        graph.connections.removeLast(2)
+        graph.connections += [
+            Connection(fromNodeId: nodes[3].id, fromOutput: "Output", toNodeId: combination.id, toInput: "Input A"),
+            Connection(fromNodeId: nodes[0].id, fromOutput: "Image", toNodeId: combination.id, toInput: "Input B"),
+            Connection(fromNodeId: combination.id, fromOutput: "Output", toNodeId: nodes[5].id, toInput: "Input")
+        ]
+        #expect(graph.validationError() == nil)
+        #expect(BatchMemoryPolicy.peakPixels(24_000_000, graph: graph) == 48_000_000)
+    }
+
     @MainActor
     @Test func `Source replacement and preview resolution invalidate legacy GPU upload`() async throws {
         let context = try context()
@@ -303,7 +323,8 @@ struct PerformanceTests {
     }
 
     @MainActor
-    @Test func `Export reuses native film sources while preserving full image dimensions`() async throws {
+    @Test(arguments: [false, true])
+    func `Export reuses native film sources while preserving full image dimensions`(crop: Bool) async throws {
         let kit = RawrKit()
         let context = try #require(kit.processingContext)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -315,10 +336,16 @@ struct PerformanceTests {
         source.imageURL = input
         let develop = NodeData(type: .negativeDevelop, position: .zero)
         let preview = NodeData(type: .preview, position: .zero)
-        let graph = NodeGraph(nodes: [source, develop, preview], connections: [
-            Connection(fromNodeId: source.id, fromOutput: "Image", toNodeId: develop.id, toInput: "Input"),
-            Connection(fromNodeId: develop.id, fromOutput: "Output", toNodeId: preview.id, toInput: "Input")
-        ])
+        var nodes = [source]
+        if crop {
+            var geometry = NodeData(type: .autoCrop, position: .zero)
+            geometry.autoCrop?.manual = CropGeometry(width: 0.75, height: 0.75)
+            nodes.append(geometry)
+        }
+        nodes += [develop, preview]
+        let graph = NodeGraph(nodes: nodes, connections: (1..<nodes.count).map { i in
+            Connection(fromNodeId: nodes[i-1].id, fromOutput: i == 1 ? "Image" : "Output", toNodeId: nodes[i].id, toInput: "Input")
+        })
         kit.maxPreviewDimension = 16
         try #require(await kit.executeGraph(graph))
         let before = try #require(kit.loadNegativeSource(at: input, context: context))
@@ -328,7 +355,7 @@ struct PerformanceTests {
         let after = try #require(kit.loadNegativeSource(at: input, context: context))
         #expect(after.contentID == before.contentID)
         let exported = try ImageDecoder(context: context.linearCIContext).decode(url: output)
-        #expect(exported.width == 64 && exported.height == 32)
+        #expect(exported.width == (crop ? 48 : 64) && exported.height == (crop ? 24 : 32))
         #expect(!kit.isFullResolutionMode)
     }
 

@@ -189,6 +189,7 @@ public actor GraphExecutor {
         executionCache.removeAll()
         for processor in processors.values {
             (processor as? DustRemovalProcessor)?.clearCache()
+            (processor as? AutoCropProcessor)?.clearCache()
         }
         context.log("Execution cache cleared")
     }

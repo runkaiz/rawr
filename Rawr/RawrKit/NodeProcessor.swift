@@ -18,9 +18,10 @@ public struct ImageData {
         self.cgImage = cgImage
         self.metadata = metadata
     }
-    init(lease: TextureLease, metadata: ImageMetadata) {
-        self.init(texture: lease.texture, metadata: metadata)
+    init(lease: TextureLease, metadata: ImageMetadata, infraredLease: TextureLease? = nil) {
+        self.init(texture: lease.texture, metadata: metadata, infraredTexture: infraredLease?.texture)
         textureLeases = [lease]
+        if let infraredLease { textureLeases.append(infraredLease) }
     }
 
 }

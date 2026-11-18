@@ -45,13 +45,16 @@ Legacy scaled inputs still reload at full resolution; roll export releases the
 editor caches before starting its separate workers.
 Dust results are reused by source content identity, controls, repair spots and
 the external IR file identity. Canvas placement has no effect on that cache.
-The dust cache retains one result, capped at 768 MiB or half the recommended
-working set, whichever is smaller. It is disabled during full-resolution export.
+Cleanup and crop each retain one result, capped at 768 MiB or half the
+recommended working set, whichever is smaller. New results are not retained
+during full-resolution export; an existing matching native preview can be reused.
+Crop keeps RGB and registered IR under the same lease ownership, preserving its
+content identity across downstream slider edits.
 
 Roll export streams at most two frames concurrently. Each worker has its own
 decoder, CI contexts, command queue, source cache and executor. The memory policy
 budgets 96 bytes per pixel plus 256 MiB per frame, increases the estimate for
-longer graphs, and limits the budget to half the recommended GPU working set or
+graph branches, and limits the budget to half the recommended GPU working set or
 one third of physical RAM. RAW files and unknown dimensions use one worker.
 Only compact summaries accumulate during roll calibration. Logs retain 500 rows.
 

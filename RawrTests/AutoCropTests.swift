@@ -10,6 +10,28 @@ import UniformTypeIdentifiers
 @Suite(.serialized)
 @MainActor
 struct AutoCropTests {
+    @Test func `Unchanged crop reuses paired GPU images and geometry edits invalidate it`() async throws {
+        let ctx = try context()
+        let input = try fixture(ctx, degrees: 3.5)
+        let paired = ImageData(texture: input.texture, metadata: input.metadata, infraredTexture: input.texture)
+        let processor = AutoCropProcessor(context: ctx)
+        var node = NodeData(type: .autoCrop, position: .zero)
+        let first = try #require(await processor.process(inputs: ["Input": paired], node: node, context: ctx)?["Output"])
+        node.position = CGPoint(x: 200, y: 100)
+        let reused = try #require(await processor.process(inputs: ["Input": paired], node: node, context: ctx)?["Output"])
+        #expect(first.contentID == reused.contentID)
+        #expect(first.textureLeases.count == 2)
+        let infrared = try #require(first.infraredTexture)
+        #expect(ObjectIdentifier(first.texture) != ObjectIdentifier(infrared))
+        node.autoCrop?.manual = CropGeometry(width: 0.6, height: 0.4, degrees: 2)
+        let changed = try #require(await processor.process(inputs: ["Input": paired], node: node, context: ctx)?["Output"])
+        #expect(changed.contentID != first.contentID)
+        #expect(changed.texture.width == 384 && changed.texture.height == 192)
+        processor.clearCache()
+        let cleared = try #require(await processor.process(inputs: ["Input": paired], node: node, context: ctx)?["Output"])
+        #expect(cleared.contentID != changed.contentID)
+    }
+
     private func context() throws -> ProcessingContext {
         let device = try #require(MTLCreateSystemDefaultDevice())
         return ProcessingContext(device: device, commandQueue: try #require(device.makeCommandQueue()), ciContext: CIContext(mtlDevice: device))

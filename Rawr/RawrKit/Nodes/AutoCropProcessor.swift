@@ -29,18 +29,22 @@ actor AutoCropDetector {
         self.context = context
         var pipelines: [String: MTLComputePipelineState] = [:]
         for name in ["Projections", "Select", "Border"] {
-            if let function = context.shaderLibrary?.makeFunction(name: "autoCrop" + name) {
-                pipelines[name] = try? context.device.makeComputePipelineState(function: function)
-            }
+            pipelines[name] = context.resources.pipeline("autoCrop" + name)
         }
         self.pipelines = pipelines
     }
 
     func analyze(_ input: ImageData) async -> AutoCropResult? {
-        if let cached = cache[input.contentID] { return cached }
+        let start = ProcessInfo.processInfo.systemUptime
+        if let cached = cache[input.contentID] {
+            context.trace.record("crop-detection-cache", since: start, device: context.device, cached: true)
+            return cached
+        }
         guard pipelines.count == 3, let command = context.commandQueue.makeCommandBuffer(),
-              let profiles = context.device.makeBuffer(length: 65 * 2 * 256 * 4, options: .storageModePrivate),
-              let candidates = context.device.makeBuffer(length: 65 * MemoryLayout<CropCandidate>.stride, options: .storageModeShared) else { return nil }
+              let profilesLease = context.resources.buffer(length: 65 * 2 * 256 * 4),
+              let candidatesLease = context.resources.buffer(length: 65 * MemoryLayout<CropCandidate>.stride, options: .storageModeShared) else { return nil }
+        let profiles = profilesLease.buffer, candidates = candidatesLease.buffer
+        defer { withExtendedLifetime([profilesLease, candidatesLease]) {} }
         command.label = "Auto Crop: rotated edge projections and frame candidates"
         for name in ["Projections", "Select"] {
             guard let encoder = command.makeComputeCommandEncoder(), let pipeline = pipelines[name] else { return nil }
@@ -59,6 +63,7 @@ actor AutoCropDetector {
         }
         command.commit()
         await command.completed()
+        context.trace.record("crop-detection", since: start, device: context.device, command: command)
         guard command.status == .completed else { return nil }
         let summaries = UnsafeBufferPointer(start: candidates.contents().assumingMemoryBound(to: CropCandidate.self), count: 65)
         let best = summaries.indices.max { summaries[$0].quality.x < summaries[$1].quality.x } ?? 32
@@ -89,9 +94,12 @@ actor AutoCropDetector {
     }
 
     private func borderBase(_ input: ImageData, geometry: CropGeometry) async -> SIMD4<Float>? {
+        let start = ProcessInfo.processInfo.systemUptime
         guard let pipeline = pipelines["Border"], let command = context.commandQueue.makeCommandBuffer(),
-              let result = context.device.makeBuffer(length: 16, options: .storageModeShared),
+              let resultLease = context.resources.buffer(length: 16, options: .storageModeShared),
               let encoder = command.makeComputeCommandEncoder() else { return nil }
+        let result = resultLease.buffer
+        defer { withExtendedLifetime(resultLease) {} }
         var transform = CropTransform(geometry)
         encoder.setComputePipelineState(pipeline)
         encoder.setTexture(input.texture, index: 0)
@@ -101,6 +109,7 @@ actor AutoCropDetector {
         encoder.endEncoding()
         command.commit()
         await command.completed()
+        context.trace.record("crop-border", since: start, device: context.device, command: command)
         return command.status == .completed ? result.contents().load(as: SIMD4<Float>.self) : nil
     }
 }
@@ -108,16 +117,22 @@ actor AutoCropDetector {
 public final class AutoCropProcessor: MetalNodeProcessor {
     private let detector: AutoCropDetector
     private let pipeline: MTLComputePipelineState?
+    private struct Key: Equatable {
+        let source: UUID
+        let node: NodeData
+    }
+    private var cached: (key: Key, image: ImageData)?
+
+    func clearCache() { cached = nil }
 
     public init(context: ProcessingContext) {
         detector = AutoCropDetector(context: context)
-        pipeline = context.shaderLibrary?.makeFunction(name: "autoCropResample").flatMap {
-            try? context.device.makeComputePipelineState(function: $0)
-        }
+        pipeline = context.resources.pipeline("autoCropResample")
         super.init(nodeType: .autoCrop)
     }
 
     override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
+        let start = ProcessInfo.processInfo.systemUptime
         guard let input = inputs["Input"], input.metadata.domain == .linearTransmittance,
               input.texture.pixelFormat == .rgba32Float, let pipeline,
               var result = await detector.analyze(input) else {
@@ -144,6 +159,14 @@ public final class AutoCropProcessor: MetalNodeProcessor {
             context.log("Auto Crop: low confidence; image retained intact", level: .warning)
             return ["Output": input]
         }
+        var configuration = node
+        configuration.position = .zero
+        let key = Key(source: input.contentID, node: configuration)
+        if let cached, cached.key == key {
+            context.trace.record("crop-cache", since: start, device: context.device, cached: true)
+            return ["Output": cached.image]
+        }
+        cached = nil
         // Derive roll dimensions from the reference once, avoiding a one-pixel
         // difference from normalize/denormalize rounding on different scans.
         let pixelWidth = settings.rollSize.map { $0.width * Double(settings.rollSourceWidth ?? input.texture.width) }
@@ -155,22 +178,20 @@ public final class AutoCropProcessor: MetalNodeProcessor {
         guard let command = context.commandQueue.makeCommandBuffer() else { return nil }
         command.label = "Auto Crop: straighten and crop (RGB + registered IR)"
         var transform = CropTransform(geometry)
-        func resample(_ source: MTLTexture) -> MTLTexture? {
-            let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: source.pixelFormat, width: width, height: height, mipmapped: false)
-            descriptor.usage = [.shaderRead, .shaderWrite]
-            descriptor.storageMode = .private
-            guard let output = context.device.makeTexture(descriptor: descriptor), let encoder = command.makeComputeCommandEncoder() else { return nil }
+        func resample(_ source: MTLTexture) -> TextureLease? {
+            guard let lease = context.resources.texture(format: source.pixelFormat, width: width, height: height),
+                  let encoder = command.makeComputeCommandEncoder() else { return nil }
             encoder.setComputePipelineState(pipeline)
             encoder.setTexture(source, index: 0)
-            encoder.setTexture(output, index: 1)
+            encoder.setTexture(lease.texture, index: 1)
             encoder.setBytes(&transform, length: MemoryLayout<CropTransform>.stride, index: 0)
             encoder.dispatchThreads(MTLSize(width: width, height: height, depth: 1),
                 threadsPerThreadgroup: MTLSize(width: pipeline.threadExecutionWidth, height: 4, depth: 1))
             encoder.endEncoding()
-            return output
+            return lease
         }
         guard let output = resample(input.texture) else { return nil }
-        var infrared: MTLTexture?
+        var infrared: TextureLease?
         if let source = input.infraredTexture {
             guard source.width == input.texture.width, source.height == input.texture.height,
                   let cropped = resample(source) else { return nil }
@@ -178,13 +199,22 @@ public final class AutoCropProcessor: MetalNodeProcessor {
         }
         command.commit()
         await command.completed()
+        context.trace.record("crop", since: start, device: context.device, command: command)
         guard command.status == .completed else { return nil }
         var metadata = input.metadata
         metadata.width = width
         metadata.height = height
         metadata.dustMaskPreview = nil
+        metadata.dustMaskLease = nil
+        metadata.legacyFloatOutput = false
         metadata.cropFilmBase = settings.useBorderForBase && result.accepted && result.borderBase.w > 0 ? result.borderBase : nil
         context.log("Auto Crop: \(width)×\(height), \(geometry.degrees)°, confidence \(Int(result.confidence * 100))%")
-        return ["Output": ImageData(texture: output, metadata: metadata, infraredTexture: infrared)]
+        let image = ImageData(lease: output, metadata: metadata, infraredLease: infrared)
+        let bytes = output.texture.allocatedSize + (infrared?.texture.allocatedSize ?? 0)
+        if bytes <= min(768 * 1024 * 1024, Int(context.device.recommendedMaxWorkingSetSize / 2)),
+           context.logger?.isFullResolutionMode != true {
+            cached = (key, image)
+        }
+        return ["Output": image]
     }
 }
