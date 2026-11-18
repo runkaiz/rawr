@@ -363,8 +363,7 @@ struct NodeGraphView: View {
 
     private func selectedRollFrame(_ node: NodeData) -> String? {
         guard let roll = node.rollBaseline,
-              let edge = connections.first(where: { $0.toNodeId == node.id }),
-              let source = nodes.first(where: { $0.id == edge.fromNodeId && $0.type == .folderInput }),
+              let source = RawrKit.rollMeasurementPath(NodeGraph(nodes:nodes,connections:connections),nodeID:node.id)?.first,
               let index = source.parameters["selectedIndex"], index.isFinite,
               index >= 0, index < Double(roll.frames.count) else { return nil }
         return roll.frames[Int(index)].name

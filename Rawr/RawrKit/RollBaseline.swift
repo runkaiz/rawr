@@ -19,9 +19,20 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
         r.base = p.base; r.base.w = confidence
         r.low = p.low; r.low.w = confidence
         r.high = p.high; r.high.w = confidence
-        r.offset = p.balance; r.offset.w = confidence
+        r.offset = p.balance; r.offset.w = calibration["autoBalance"] == 1 ? 0 : confidence
         r.slope = p.slope
         return r
+    }
+
+    /// Groups without shared evidence continue to display the current frame's
+    /// estimate and confidence, matching the parameters used by development.
+    func displayStatistics(frame: NegativeMeteringResult?) -> NegativeMeteringResult? {
+        guard var result = statistics else { return frame }
+        guard let frame else { return result }
+        if calibration["autoBase"] == 1 { result.base = frame.base }
+        if calibration["autoEndpoints"] == 1 { result.low = frame.low; result.high = frame.high }
+        if calibration["autoBalance"] == 1 { result.offset = frame.offset; result.slope = frame.slope }
+        return result
     }
 
     var isSupported: Bool {

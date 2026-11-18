@@ -175,6 +175,15 @@ struct RollBaselineTests {
         let kit = RawrKit()
         let roll = try #require(await kit.measureRoll(graph, nodeID: develop.id))
         #expect(roll.frames.count == 5 && roll.frames.allSatisfy(\.included))
+        let dust = NodeData(type:.dustRemoval,position:.zero), crop = NodeData(type:.autoCrop,position:.zero)
+        let throughCleanup = NodeGraph(nodes:[source,dust,crop,develop,preview],connections:[
+            Connection(fromNodeId:source.id,fromOutput:"Image",toNodeId:dust.id,toInput:"Input"),
+            Connection(fromNodeId:dust.id,fromOutput:"Output",toNodeId:crop.id,toInput:"Input"),
+            Connection(fromNodeId:crop.id,fromOutput:"Output",toNodeId:develop.id,toInput:"Input"),
+            Connection(fromNodeId:develop.id,fromOutput:"Output",toNodeId:preview.id,toInput:"Input")])
+        #expect(RawrKit.rollMeasurementPath(throughCleanup,nodeID:develop.id)?.map(\.id)==[source.id,dust.id,crop.id])
+        let cleanedRoll = try #require(await kit.measureRoll(throughCleanup,nodeID:develop.id))
+        #expect(cleanedRoll.frames.count==5 && cleanedRoll.frames.allSatisfy(\.included))
         graph.nodes[1].rollBaseline = roll
         for frame in roll.frames {
             #expect(roll.parameters(for: inputs.appendingPathComponent(frame.name), node: develop.parameters) != nil)

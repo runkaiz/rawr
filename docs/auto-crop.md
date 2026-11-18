@@ -4,7 +4,8 @@ Connect `Image Input / Folder Input → Auto Crop → Negative Develop → Previ
 Dust Removal may go before Auto Crop; registered embedded IR is transformed
 along with RGB. An external IR file should be attached before the crop so its
 source dimensions still match. Crop runs identically for preview and export,
-using full-resolution linear float textures.
+using linear float textures. Oversized RAW working previews and the documented
+full-resolution ceiling follow the [source contract](negative-develop.md).
 
 Process the graph to see the proposed frame, clockwise rotation and confidence.
 A confidence below 55% keeps a single image intact. Review the source-space
@@ -34,8 +35,9 @@ IR. Four detection summaries are cached by immutable image identity.
 
 When at least two narrow strips outside the detected exposure agree, remain
 unclipped and uniform, and are brighter than the exposure interior, their RGB
-estimate is carried downstream as film-base metadata. Negative Develop uses
-it only with automatic base metering enabled. Disable `Meter base from detected
+estimate is carried downstream as film-base metadata. Validated source-edge
+strips provide additional evidence before cropping. Negative Develop uses the
+retained estimate only with automatic base metering enabled. Disable `Meter base from detected
 border` to use Negative Develop's existing border/interior fallback instead.
 Manual base values retain priority. This is a conservative optical estimate,
 not a scanner calibration or a film-stock profile.

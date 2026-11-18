@@ -11,7 +11,7 @@ struct RollBaselineControls: View {
         VStack(alignment: .leading, spacing: 5) {
             Text("Roll consistency").font(.caption.bold())
             Button(baseline == nil ? "Measure folder roll" : "Measure roll again", action: onMeasure)
-                .help("Connect Folder Input directly. At least three reliable frames with film borders and neutral detail are required. Measurement replaces the baseline and frame edits.")
+                .help("Connect Folder Input, optionally through Dust Removal and Auto Crop. At least three reliable frames with film borders and density detail are required. Shared balance also needs neutral detail. Measurement replaces the baseline and frame edits.")
             if let baseline {
                 Text("Baseline v\(baseline.version) · Confidence \(Int((baseline.confidence.isFinite ? min(1, max(0, baseline.confidence)) : 0) * 100))%")
                 Text("\(baseline.frames.filter(\.included).count) / \(baseline.frames.count) frames accepted")

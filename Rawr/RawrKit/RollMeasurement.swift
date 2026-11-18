@@ -107,6 +107,7 @@ extension RawrKit {
         var path = [NodeData](), current = nodeID, visited = Set<UUID>()
         while visited.insert(current).inserted {
             guard let edge = graph.connections.first(where:{ $0.toNodeId == current && $0.toInput == "Input" }),
+                  edge.fromOutput != "Mask",
                   let node = graph.nodes.first(where:{ $0.id == edge.fromNodeId }) else { return nil }
             path.append(node)
             if node.type == .folderInput { return path.reversed() }

@@ -3,13 +3,13 @@ import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 
-/// One full-size decoding path for files and embedded image data. Preview scaling
-/// happens only after decoding and checking the sensor dimensions.
+/// Checks native sensor admission before decoding. Oversized supported RAWs can
+/// explicitly request a bounded working preview; exports retain the native cap.
 struct ImageDecoder {
     let context: CIContext
 
     enum DecodeError: LocalizedError {
-        case invalidImage, unsupportedRAW, invalidDimensions, unexpectedRAWDimensions, fullResolutionLimit
+        case invalidImage, unsupportedRAW, invalidDimensions, unexpectedRAWDimensions, fullResolutionLimit, emptyRAW
 
         var errorDescription: String? {
             switch self {
@@ -18,6 +18,7 @@ struct ImageDecoder {
             case .invalidDimensions: return "Image dimensions are invalid or exceed the supported size (16384 per edge, 128 megapixels)."
             case .unexpectedRAWDimensions: return "RAW decoder output does not match the full sensor dimensions."
             case .fullResolutionLimit: return "Full-resolution processing is limited to 128 megapixels and 16384 pixels per edge. Use the downscaled preview, or export a smaller calibrated linear DNG/TIFF for full-resolution processing."
+            case .emptyRAW: return "RAW decoding produced an empty or transparent frame. Check the capture or export a calibrated linear DNG/TIFF."
             }
         }
     }
@@ -95,7 +96,7 @@ struct ImageDecoder {
             context.render(average,toBitmap:$0.baseAddress!,rowBytes:16,bounds:CGRect(x:0,y:0,width:1,height:1),format:.RGBAf,colorSpace:NegativeImageIO.colorSpace)
         }
         guard pixel.allSatisfy(\.isFinite), pixel[3] > 0.99,
-              max(pixel[0],max(pixel[1],pixel[2])) > 1e-7 else { throw DecodeError.unsupportedRAW }
+              max(pixel[0],max(pixel[1],pixel[2])) > 1e-7 else { throw DecodeError.emptyRAW }
     }
 
     private func renderRAW(_ filter: CIRAWFilter, allowDownscale: Bool = false) throws -> CGImage {

@@ -19,7 +19,8 @@ kernel void negativeMeterBaseCandidates(texture2d<float,access::read> image [[te
     float3 sum(0), square(0), normal[3]={float3(0),float3(0),float3(0)};
     uint count=0;
     for(uint n=0;n<3;++n) for(uint j=0;j<64;++j) {
-        float across=(float(offset)+0.5f)/40.0f*0.12f+(float(n)-1.0f)*0.0012f;
+        float step=max(0.0012f,1.0f/(side<2 ? size.x:size.y));
+        float across=(float(offset)+0.5f)/40.0f*0.12f+(float(n)-1.0f)*step;
         float along=0.04f+(float(segment)+(float(j)+0.5f)/64.0f)/8.0f*0.92f;
         float2 uv=side<2 ? float2(side==0 ? across:1-across,along) :
             float2(along,side==2 ? across:1-across);
@@ -154,7 +155,7 @@ kernel void negativeMeterSelect(device const uint *hist [[buffer(0)]], device Me
             r.quality[c] = count >= 16 ? clamp(1.0f - (bright - median) * logRange / 0.06f, 0.0f, 1.0f) : 0;
         } else if (phase == 1) {
             float bright = quantile(h, 0.995f, count);
-            if (min(min(r.quality.x, r.quality.y), r.quality.z) < 0.5f)
+            if (r.base.w == 0 && min(min(r.quality.x, r.quality.y), r.quality.z) < 0.5f)
                 r.base[c] = precise::pow(10.0f, bright * logRange - 6.0f);
         } else {
             r.low[c] = quantile(h, 0.01f, count) * 7.0f - 1.0f;

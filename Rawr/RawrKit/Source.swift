@@ -366,7 +366,8 @@ public class RawrKit: ObservableObject {
         log("Graph cache cleared")
     }
 
-    /// Full-size float decode and GPU upload; no CPU image is made between stages.
+    /// Native float decode or an explicitly bounded large-RAW working preview.
+    /// Full-resolution requests cannot reuse a downscaled source cache entry.
     internal func loadNegativeSource(at url: URL, context: ProcessingContext) -> ImageData? {
         let start = ProcessInfo.processInfo.systemUptime
         let access = url.startAccessingSecurityScopedResource()

@@ -54,7 +54,7 @@ enum LinearDNG {
             for i in 0..<count {
                 let e = offset + 2 + i*12
                 let tag = try integer(data,e,2), type = try integer(data,e+2,2), n = try integer(data,e+4,4)
-                let size = [1:1,2:1,3:2,4:4,5:8,7:1,9:4,10:8,11:4,12:8][type]
+                let size = [1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8,11:4,12:8,13:4][type]
                 guard let size, n <= 1_000_000 else { throw LayoutError.corrupt }
                 let length = n*size, start = length <= 4 ? e+8 : try integer(data,e+8,4)
                 guard start <= data.count-length else { throw LayoutError.corrupt }
@@ -87,7 +87,16 @@ enum LinearDNG {
         guard let raw = try candidates.max(by: { a,b in
             (try values(a[256]).first ?? 0)*(try values(a[257]).first ?? 0) <
                 (try values(b[256]).first ?? 0)*(try values(b[257]).first ?? 0)
-        }) else { return nil }
+        }) else {
+            // A non-LinearRaw four-sample sensor is unsupported, not RGBA.
+            // Explicit reduced-resolution thumbnails do not define the sensor.
+            for directory in directories {
+                if try values(directory[277]) == [4] && values(directory[254]) != [1] {
+                    throw LayoutError.unsupported
+                }
+            }
+            return nil
+        }
         let common = directories[0].merging(raw) { _, sensor in sensor }
         let w = Int(try values(raw[256]).first ?? 0), h = Int(try values(raw[257]).first ?? 0)
         try ImageDecoder.validateDimensions(width:Double(w),height:Double(h))
@@ -100,7 +109,8 @@ enum LinearDNG {
               common[50727] == nil, common[50964] == nil, common[50965] == nil,
               common[51008] == nil, common[51009] == nil, common[51022] == nil else { throw LayoutError.unsupported }
         let color = try values(common[50721]), reduction = try values(common[50725])
-        guard color.count == 12, reduction.count == 12 else { throw LayoutError.unsupported }
+        guard color.count == 12, reduction.count == 12,
+              reduction.allSatisfy({ $0.isFinite && abs($0)<=16 }) else { throw LayoutError.unsupported }
         var reducedColor = [Double](repeating:0,count:9)
         for r in 0..<3 { for c in 0..<3 { for k in 0..<4 {
             reducedColor[r*3+c] += reduction[r*4+k]*color[k*3+c]
@@ -108,9 +118,12 @@ enum LinearDNG {
         let determinant = reducedColor[0]*(reducedColor[4]*reducedColor[8]-reducedColor[5]*reducedColor[7]) -
             reducedColor[1]*(reducedColor[3]*reducedColor[8]-reducedColor[5]*reducedColor[6]) +
             reducedColor[2]*(reducedColor[3]*reducedColor[7]-reducedColor[4]*reducedColor[6])
-        guard determinant.isFinite, abs(determinant)>1e-8 else { throw LayoutError.corrupt }
+        guard determinant.isFinite, abs(determinant)>1e-8,
+              reducedColor.allSatisfy({ $0.isFinite && abs($0)<=100 }) else { throw LayoutError.corrupt }
         let black = try values(raw[50714]), white = try values(raw[50717])
+        let repeatDimensions = try values(raw[50713])
         guard [0,1,4].contains(black.count), [0,1,4].contains(white.count),
+              repeatDimensions.isEmpty || repeatDimensions == [1,1],
               raw[50715] == nil, raw[50716] == nil, raw[50712] == nil else { throw LayoutError.unsupported }
         let blacks = (0..<4).map { black.isEmpty ? 0 : black[min($0,black.count-1)] }
         let whites = (0..<4).map { white.isEmpty ? 65535 : white[min($0,white.count-1)] }
@@ -124,8 +137,25 @@ enum LinearDNG {
         }
         var pixels = Data(count:w*h*6)
         var clipped = false
+        let selectsRGB = reduction == [1,0,0,0,0,1,0,0,0,0,1,0] &&
+            blacks.allSatisfy({ $0 == 0 }) && whites.allSatisfy({ $0 == 65535 }) &&
+            offsets.allSatisfy({ $0%2 == 0 })
         data.withUnsafeBytes { source in pixels.withUnsafeMutableBytes { (dest: UnsafeMutableRawBufferPointer) in
             let input = source.bindMemory(to:UInt8.self), output = dest.bindMemory(to:UInt16.self)
+            if selectsRGB {
+                // Common scanner reduction explicitly has zero fourth-plane
+                // weights. Copy the selected samples losslessly, without a
+                // floating-point matrix multiply/quantization per pixel.
+                let words = source.bindMemory(to:UInt16.self)
+                for y in 0..<h {
+                    let row = offsets[y/rows]/2+(y%rows)*w*4
+                    for x in 0..<w { for c in 0..<3 {
+                        let value = words[row+x*4+c]
+                        output[(y*w+x)*3+c] = little ? value:value.byteSwapped
+                    } }
+                }
+                return
+            }
             for y in 0..<h { for x in 0..<w {
                 let start = offsets[y/rows]+((y%rows)*w+x)*8
                 var samples = SIMD4<Double>()
@@ -137,7 +167,7 @@ enum LinearDNG {
                 for r in 0..<3 {
                     var value = 0.0
                     for k in 0..<4 { value += reduction[r*4+k]*samples[k] }
-                    if !value.isFinite || value < -0.001 || value > 1.001 { clipped = true }
+                    if !value.isFinite || value < -1e-7 || value > 1.0000001 { clipped = true }
                     output[(y*w+x)*3+r] = UInt16(max(0,min(65535,(value*65535).rounded()))).littleEndian
                 }
             } }

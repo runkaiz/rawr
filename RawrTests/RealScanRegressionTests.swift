@@ -3,12 +3,14 @@ import Testing
 import CoreImage
 import Metal
 
+private final class ScanFixtureBundle {}
+
 @Suite(.serialized)
 @MainActor
 struct RealScanRegressionTests {
     /// Independent TIFF/DNG writer; no source photo or private metadata.
     private func dng(extra: UInt16 = 8000, usesExtra: Bool = false, compression: Int = 1,
-                     black: Int = 4080, orientation: Int = 6) -> Data {
+                     black: Int = 4080, orientation: Int = 6, illuminant: Bool = true) -> Data {
         func bytes(_ values: [Int], _ size: Int) -> Data {
             Data(values.flatMap { v in (0..<size).map { UInt8(truncatingIfNeeded:v >> ($0*8)) } })
         }
@@ -25,7 +27,7 @@ struct RealScanRegressionTests {
         rational(50721,[10000,0,0,0,10000,0,0,0,10000,0,10000,0],signed:true)
         rational(50725,[10000,0,0,0,0,usesExtra ? 8000:10000,0,usesExtra ? 2000:0,0,0,10000,0],signed:true)
         short(50713,[1,1]); rational(50714,[black*10000]); long(50717,[65535])
-        rational(50729,[3127,3290]); short(50778,[21])
+        rational(50729,[3127,3290]); if illuminant { short(50778,[21]) }
         entries.sort{$0.0<$1.0}
         var result = Data([73,73,42,0,8,0,0,0]); result.append(bytes([entries.count],2))
         var auxiliary = Data()
@@ -67,6 +69,9 @@ struct RealScanRegressionTests {
         #expect(weighted != a)
         let second = try average(weighted)
         #expect(abs(first[1]-second[1])>0.01, "Nonzero fourth-plane weights must contribute to colour")
+        let scanner = try #require(try LinearDNG.threePlaneData(dng(black:0,illuminant:false)))
+        let scannerMean = try average(scanner)
+        #expect(scannerMean[3]>0.99 && scannerMean[0]>0.01)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
         defer { try? FileManager.default.removeItem(at:root) }
@@ -104,6 +109,56 @@ struct RealScanRegressionTests {
         #expect(throws: (any Error).self) { try ImageDecoder.workingScale(width:.infinity,height:1,allowDownscale:true) }
     }
 
+    @Test func `An oversized synthetic sensor decodes a working preview before texture allocation`() throws {
+        let bundle = Bundle(for:ScanFixtureBundle.self)
+        let fixture = try #require(bundle.url(forResource:"sensor",withExtension:"dng",subdirectory:"Fixtures") ??
+            bundle.url(forResource:"sensor",withExtension:"dng"))
+        var header = try Data(contentsOf:fixture)
+        func read(_ offset:Int,_ size:Int) -> Int {
+            (0..<size).reduce(0) { $0 | Int(header[offset+$1]) << ($1*8) }
+        }
+        func write(_ offset:Int,_ value:Int) {
+            for i in 0..<4 { header[offset+i] = UInt8(truncatingIfNeeded:value >> (i*8)) }
+        }
+        let count = read(8,2)
+        let subEntry = try #require((0..<count).map{10+$0*12}.first(where:{read($0,2)==330}))
+        let sub = read(subEntry+8,4), subCount = read(sub,2)
+        let entries = Dictionary(uniqueKeysWithValues:(0..<subCount).map{ i in
+            let offset=sub+2+i*12;return (read(offset,2),offset)
+        })
+        let w=12900, h=10000
+        let pixelStart = read(try #require(entries[273])+8,4)
+        write(try #require(entries[256])+8,w);write(try #require(entries[257])+8,h)
+        write(try #require(entries[278])+8,h);write(try #require(entries[279])+8,w*h*2)
+        let crop = read(try #require(entries[50720])+8,4)
+        write(crop,w);write(crop+4,h)
+        header = Data(header.prefix(pixelStart))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:root) }
+        let url = root.appendingPathComponent("129mp-synthetic.dng")
+        try header.write(to:url)
+        let file = try FileHandle(forWritingTo:url)
+        try file.seekToEnd()
+        var row = Data(count:w*2)
+        for x in 0..<w {
+            let v = 10000+x*2
+            row[x*2] = UInt8(truncatingIfNeeded:v);row[x*2+1] = UInt8(truncatingIfNeeded:v >> 8)
+        }
+        for _ in 0..<h { try file.write(contentsOf:row) }
+        try file.close()
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let ctx = ProcessingContext(device:device,commandQueue:try #require(device.makeCommandQueue()),ciContext:CIContext(mtlDevice:device))
+        let kit = RawrKit()
+        let image = try #require(kit.loadNegativeSource(at:url,context:ctx))
+        #expect(image.metadata.sourceWasDownscaled)
+        #expect(image.texture.width*image.texture.height<=24_010_000)
+        #expect(image.texture.width>1000)
+        #expect(throws:(any Error).self) { try NegativeImageIO.load(url:url,context:ctx,allowDownscale:false) }
+        kit.isFullResolutionMode = true
+        #expect(kit.loadNegativeSource(at:url,context:ctx) == nil, "A cached working preview must never satisfy a full-resolution request")
+    }
+
     @Test func `Invisible and opaque black RAW outputs fail decode acceptance`() throws {
         let ctx = CIContext()
         for color in [CIColor.clear,CIColor.black] {
@@ -124,5 +179,23 @@ struct RealScanRegressionTests {
         #expect(reduction.statistics.base.w>0.8 && reduction.statistics.offset.w==0)
         let insufficient = try #require(await RollReduction.reduce([good,good],context:ctx))
         #expect(insufficient.statistics.base.w==0)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:root) }
+        let url = root.appendingPathComponent("frame.dng"); try Data([0]).write(to:url)
+        var calibration = good.locking("Base",in:NegativeDevelopParameters.defaults)
+        calibration = good.locking("Endpoints",in:calibration)
+        calibration["autoBalance"] = 1
+        let roll = RollBaseline(folder:root,calibration:calibration,confidence:0.9,
+            frames:[try RollFrame(url:url,included:true,densityShift:0)])
+        let effective = try #require(roll.parameters(for:url,node:["autoBase":1,"autoEndpoints":1,"autoBalance":1]))
+        #expect(effective["autoBase"]==0 && effective["autoEndpoints"]==0)
+        #expect(effective["autoBalance"]==1)
+        #expect(roll.statistics?.offset.w==0)
+        var frame = NegativeMeteringResult()
+        frame.offset = SIMD4(0.1,0,-0.1,0.75)
+        let displayed = try #require(roll.displayStatistics(frame:frame))
+        #expect(displayed.offset==frame.offset)
+        #expect(displayed.base.x==good.base.x)
     }
 }

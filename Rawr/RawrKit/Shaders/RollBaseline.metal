@@ -75,7 +75,8 @@ kernel void negativeRollReduce(device const RollMeter *input [[buffer(0)]],
             else result.slope[c]=median;
         }
         float support=float(included)/float(count);
-        result.base.w*=support; result.low.w*=support; result.high.w*=support; result.offset.w*=support;
+        result.base.w*=support; result.low.w*=support; result.high.w*=support;
+        result.offset.w*=float(balanceCount)/float(count);
         for (uint i=0; i<count; ++i) if (frames[i].x>0)
             frames[i].y=(input[i].low.y+input[i].high.y-result.low.y-result.high.y)*0.5f;
     }

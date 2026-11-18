@@ -12,7 +12,7 @@ retain their original complement shader and decode path.
 
 ## Input and output contract
 
-This node requires a source connection, optionally through [Dust Removal](dust-removal.md). Its source is decoded at native
+This node requires a source connection, optionally through [Dust Removal](dust-removal.md) and [Auto Crop](auto-crop.md). Its source is decoded at native
 resolution with orientation applied once, then rendered directly by Core Image
 into a private `rgba32Float` Metal texture in extended linear sRGB. Tagged TIFF
 scanner captures are the precise calibration input; ImageIO/Core Image honor
@@ -22,7 +22,7 @@ ImageIO default interpretation and should be explicitly profiled before use.
 The working RGB is **not sensor-native RGB or a physical dye-separation space**.
 No crosstalk, light-source, scanner or film-characteristic calibration is claimed.
 
-Camera RAW uses Apple's CIRAWFilter at scale 1 with draft off, exposure and
+Camera RAW uses Apple's CIRAWFilter at scale 1 (except the bounded oversized-source preview below) with draft off, exposure and
 baseline exposure 0, global/shadow boost 0, local tone map 0, gamut mapping off,
 luminance/color noise reduction 0, sharpening 0, and no linearSpaceFilter.
 Camera neutral/white balance and Apple's camera-to-working-space transform are
@@ -30,6 +30,25 @@ retained. The decoder version and native dimensions are logged. Supported
 native-size output is checked in both axis orders, and thumbnail fallbacks
 with decoder version `None` are rejected. This follows Apple's published
 [linear scene-referred decode guidance](https://developer.apple.com/videos/play/wwdc2021/10160/).
+Four-plane uncompressed, chunky, unsigned 16-bit LinearRaw DNGs use their
+3×4 ReductionMatrix1 to reduce all four colour planes and their 4×3 ColorMatrix1
+to three dimensions before Apple performs the working-space conversion. Per-plane
+black/white normalization happens first. An explicitly zero reduction weight
+excludes a plane; no plane is display alpha or inferred IR. Orientation, default
+crop, white chromaticity/neutral and single-illuminant calibration are retained.
+Unsupported compression, planar storage, spatial black levels, dual-illuminant
+or extra calibration stages fail with an export instruction. Transparent-black
+and opaque-black RAW outputs fail content acceptance, even at correct dimensions.
+This adapter follows Adobe's [DNG specification](https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html).
+
+Full-resolution processing has a ceiling of **128 MP and 16384 pixels per edge**.
+Larger RAWs (up to 1 GP / 65536 per edge) can be opened as an explicitly logged
+working preview capped at 24 MP and 8192 per edge. Decode scaling happens before
+GPU texture allocation. This preview may differ in fine-grain statistics.
+Full-resolution export rejects an oversized original with guidance to export a
+smaller calibrated linear DNG/TIFF; it never silently exports the preview.
+Four-plane adapter storage currently uses the full-resolution ceiling.
+
 The test DNG characterizes dimensions and the float processing/export path;
 it does not establish camera-scanning colorimetry for arbitrary cameras.
 
@@ -52,8 +71,7 @@ change meaning through pre-log downsampling. The tradeoff is full-resolution
 development cost and memory on each slider edit; unchanged upstream cleanup
 and statistics are reused. The compute graph still uses full-size textures;
 see [performance](performance.md) for resource bounds and benchmark methodology. There is
-no geometry/crop control in this slice: both paths retain the complete oriented
-source rectangle. Preview and export share the existing serialized request FIFO.
+an optional Auto Crop node that preserves validated source-border evidence before cropping. Preview and export share the existing serialized request FIFO.
 
 ## Equations and finite policy
 
@@ -112,7 +130,7 @@ is a separate acceptance artifact; synthetic wedges do not establish physical
 color accuracy. See the task validation report for the supplied artifact and
 measured results before claiming that part of acceptance.
 
-## Automatic metering (version 2)
+## Automatic metering (version 3)
 
 New nodes enable **Film base**, **Density endpoints**, and **Neutral balance**
 automatically. Existing documents without these switches retain manual behavior.
@@ -131,18 +149,20 @@ captures require manual calibration. Dark holders and clipped regions contribute
 no weight. User-defined ROIs/defect strokes and calibrated noise floors are not
 part of this slice.
 
-The border's per-channel 90th transmission percentile estimates base when the
-median-to-90th spread is under .03 log units in every channel and at least 16
-valid border samples exist. Otherwise the 99.5th interior transmission percentile
-is a low-confidence fallback for the brightest/lowest-density region. Base
-confidence combines border flatness, valid border coverage, and overall validity;
-a fallback with no supported border reports at most low confidence. Uniform
-scene-colored edges can masquerade as base, so confidence is a heuristic, not
-a calibrated probability or physical color-accuracy guarantee.
+Base metering searches local narrow strips at 40 offsets in the outer 12%,
+with eight independent segments on each of four sides. Candidates must have
+unclipped opaque samples, channel variation below 4%, and transverse mean drift
+below 1.2%. Matching segments must agree within 3.5% and be brighter than the
+interior. Multiple sides provide stronger support than one side. The broad-band
+90th percentile remains a fallback for an entirely flat film border; otherwise
+the 99.5th interior percentile is an explicitly low-confidence estimate.
+Auto Crop carries validated border estimates from the original source into the
+cropped frame, so cropping cannot replace clear-film evidence with scene pixels.
+Confidence is a heuristic, not a probability or a physical colour guarantee.
 
 Per-threadgroup UInt32 histograms (4096 bins) merge into GPU histograms; compact
 CDF selection runs entirely on GPU. Log transmission spans [-6,1.25] (bin width
-.00177 log units), and density spans [0,6] (bin width .001465 D). Bin centers
+.00177 log units), and density spans [-1,6] (bin width .001709 D). Bin centers
 approximate quantiles without within-bin refinement. Under/overflow densities
 enter edge bins and their fraction reduces endpoint confidence. The scene's 1st
 and 99th density percentiles establish endpoints. Rank resolution is limited by
@@ -152,8 +172,7 @@ neutral balancing is active, the green axis is the reference coordinate.
 A second reduction fits D[c] = offset[c] + slope[c] * D[G], using samples in the
 central 10–90% of each provisional channel range whose normalized channel spread
 is at most .12. Float32 block moments reduce to a least-squares neutral axis on
-GPU. Confidence combines valid fraction, density span, candidate support, and
-fit residual. When base is automatic, its uncertainty also reduces endpoint and
+GPU. Endpoint confidence uses valid fraction and density span independently of neutral-axis support. Balance confidence additionally requires at least 16 candidate samples, density leverage, up to 512 support samples, and a residual measured relative to scene density span. When base is automatic, its uncertainty also reduces endpoint and
 balance confidence. Implausible fits (slopes outside [.25,4], offsets outside [-1,1])
 or confidence <= .1 yield an identity axis. With a supported axis, development
 uses (D-offset)/slope before endpoint normalization. This statistical assumption
@@ -182,22 +201,20 @@ unhosted unit target, with no TEST_HOST or BUNDLE_LOADER and no UI tests.
 
 ## Roll consistency (baseline version 1)
 
-Connect Folder Input directly to Negative Develop and choose **Measure folder
-roll**. Use one film roll with a consistent capture setup. Measurement streams
+Connect Folder Input to Negative Develop, optionally through Dust Removal and Auto Crop, and choose **Measure folder roll**. Use one film roll with a consistent capture setup. Measurement streams
 native-resolution sources one at a time, retaining only each frame's compact
 GPU metering summary. It requires at least three reliable frames and supports
 up to 4096 files. Decode failure aborts measurement without replacing a saved
 baseline. Measurement runs in the same request queue as preview and export.
 
 A second Metal kernel performs all cross-frame statistics. Candidate frames
-need base, endpoint and neutral-axis confidence >= .5, valid sample fraction
+need base and endpoint confidence >= .5, valid sample fraction
 >= .8, out-of-domain density fraction < .1, and density span >= .2. Blanks,
-severe clipping, missing borders and unsupported neutral fits therefore cannot
-set the baseline. Among candidates, median/MAD rejection runs on log10 RGB
+severe clipping and missing borders therefore cannot set the base/endpoint baseline. A shared neutral axis independently requires at least three accepted frames with balance confidence >= .5; otherwise balance remains automatic per frame. Trusted manual groups retain priority during measurement. Among candidates, median/MAD rejection runs on log10 RGB
 base, green density span and green density midpoint. Thresholds are
 max(4.4478 * MAD, floor), with floors .04 log10 base, .3 density span and .6
 density midpoint. Thresholds are frozen before rejection. Accepted-frame
-component medians form the shared base, endpoints and neutral axis; confidence
+component medians form the supported shared groups; confidence
 is median frame confidence multiplied by the accepted fraction of all frames.
 Fewer than three accepted frames produces no saved baseline.
 
