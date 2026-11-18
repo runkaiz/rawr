@@ -30,6 +30,7 @@ public actor GraphExecutor {
             InversionProcessor(context: context),
             NegativeDevelopProcessor(context: context),
             DustRemovalProcessor(context: context),
+            AutoCropProcessor(context: context),
             ExposureProcessor(context: context),
             GammaProcessor(context: context),
             DenoiseProcessor(context: context),
@@ -72,20 +73,20 @@ public actor GraphExecutor {
         }
         // Both cleanup and development operate on full-size linear float sources.
         context.negativeInputIDs = []
-        for node in nodeGraph.nodes where node.type == .negativeDevelop || node.type == .dustRemoval {
+        for node in nodeGraph.nodes where node.type == .negativeDevelop || node.type == .dustRemoval || node.type == .autoCrop {
             var current = node
             while true {
                 guard let edge = nodeGraph.connections.first(where: { $0.toNodeId == current.id && $0.toInput == "Input" }),
                       let source = nodeGraph.nodes.first(where: { $0.id == edge.fromNodeId }),
                       edge.fromOutput != "Mask" else {
-                    context.log("Cleanup/development requires a source through Dust Removal Output", level: .error)
+                    context.log("Cleanup/development requires a source through cleanup/crop Output", level: .error)
                     return [:]
                 }
                 if source.type == .imageInput || source.type == .folderInput {
                     context.negativeInputIDs.insert(source.id)
                     break
                 }
-                guard source.type == .dustRemoval else {
+                guard source.type == .dustRemoval || source.type == .autoCrop else {
                     context.log("Cleanup/development requires linear source data; place it before legacy effects", level: .error)
                     return [:]
                 }

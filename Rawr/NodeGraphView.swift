@@ -6,6 +6,7 @@ struct NodeGraphView: View {
     @Binding var nodes: [NodeData]
     @Binding var connections: [Connection]
     @Binding var selectedNodeType: NodeType?
+    var cropResults: [UUID: AutoCropResult] = [:]
     var negativeStatistics: [UUID: NegativeMeteringResult] = [:]
     var onMeasureRoll: ((UUID) -> Void)? = nil
     var onInputNodeDeleted: (() -> Void)?
@@ -373,10 +374,12 @@ struct NodeGraphView: View {
     private func nodeView(for node: NodeData) -> some View {
         NodeView(
             node: node,
+            cropResult: cropResults[node.id],
             negativeStatistics: negativeStatistics[node.id],
             rollFrameName: selectedRollFrame(node),
             onCustomAction: { action, value in
                 if let index = nodes.firstIndex(where: { $0.id == node.id }) {
+                    if action == "setAutoCrop", let crop = value as? AutoCropSettings { nodes[index].autoCrop = crop }
                     if action == "setHealSpots", let spots = value as? [HealSpot] { nodes[index].healSpots = spots }
                     if action == "setInfrared" {
                         let url = value as? URL

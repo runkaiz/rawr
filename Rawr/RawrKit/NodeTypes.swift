@@ -8,6 +8,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     case negativeDevelop = "Negative Develop"
     case exposure = "Exposure"
     case gamma = "Gamma"
+    case autoCrop = "Auto Crop"
     case dustRemoval = "Dust Removal"
     case denoise = "Denoise"
     case sharpening = "Sharpening"
@@ -22,6 +23,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .negativeDevelop: return "camera.filters"
         case .exposure: return "sun.max"
         case .gamma: return "slider.horizontal.3"
+        case .autoCrop: return "crop.rotate"
         case .dustRemoval: return "bubbles.and.sparkles"
         case .denoise: return "waveform.path"
         case .sharpening: return "sparkles"
@@ -35,7 +37,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .imageInput: return 1
         case .folderInput: return 1
         case .preview: return 1
-        case .dustRemoval, .negativeDevelop, .inversion, .exposure, .gamma, .denoise, .sharpening, .combination: return nil
+        case .autoCrop, .dustRemoval, .negativeDevelop, .inversion, .exposure, .gamma, .denoise, .sharpening, .combination: return nil
         }
     }
 }
@@ -51,6 +53,7 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
     public var infraredURL: URL?
     public var infraredBookmark: Data?
     public var healSpots: [HealSpot] = []
+    public var autoCrop: AutoCropSettings?
     public var rollBaseline: RollBaseline?
     public var parameters: [String: Double] = [:] // Node-specific parameters
 
@@ -81,6 +84,10 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             self.inputs = ["Input"]
             self.outputs = ["Output"]
             self.parameters = ["gamma": 2.2] // Default: sRGB standard gamma
+        case .autoCrop:
+            self.inputs = ["Input"]
+            self.outputs = ["Output"]
+            self.autoCrop = AutoCropSettings()
         case .dustRemoval:
             self.inputs = ["Input"]
             self.outputs = ["Output", "Mask"]
@@ -118,6 +125,7 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
         infraredURL = try container.decodeIfPresent(URL.self, forKey: .infraredURL)
         infraredBookmark = try container.decodeIfPresent(Data.self, forKey: .infraredBookmark)
         healSpots = try container.decodeIfPresent([HealSpot].self, forKey: .healSpots) ?? []
+        autoCrop = try container.decodeIfPresent(AutoCropSettings.self, forKey: .autoCrop)
         rollBaseline = try container.decodeIfPresent(RollBaseline.self, forKey: .rollBaseline)
         parameters = try container.decodeIfPresent([String: Double].self, forKey: .parameters) ?? [:]
 
@@ -153,6 +161,10 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             if parameters["gamma"] == nil {
                 parameters["gamma"] = 2.2
             }
+        case .autoCrop:
+            inputs = ["Input"]
+            outputs = ["Output"]
+            autoCrop = autoCrop ?? AutoCropSettings()
         case .dustRemoval:
             inputs = ["Input"]
             outputs = ["Output", "Mask"]

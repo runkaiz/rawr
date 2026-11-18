@@ -6,6 +6,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 public class RawrKit: ObservableObject {
+    @Published var cropResults: [UUID: AutoCropResult] = [:]
     @Published var negativeStatistics: [UUID: NegativeMeteringResult] = [:]
     @Published public var isProcessing = false
     @Published public var logs: [LogEntry] = []
@@ -301,7 +302,7 @@ public class RawrKit: ObservableObject {
                     device: context.device, cached: reusedBefore)
             }
         }
-        if graph.nodes.contains(where: { $0.type == .negativeDevelop || $0.type == .dustRemoval }), let texture = negativeSourceTexture {
+        if graph.nodes.contains(where: { $0.type == .negativeDevelop || $0.type == .dustRemoval || $0.type == .autoCrop }), let texture = negativeSourceTexture {
             let identity = ObjectIdentifier(texture)
             if beforePreviewKey?.texture != identity || beforePreviewKey?.limit != maxPreviewDimension || previewImage == nil {
                 previewImage = NegativeImageIO.boundaryImage(texture, context: processingContext?.linearCIContext ?? ciContext, maxDimension: maxPreviewDimension)
@@ -483,6 +484,7 @@ public class RawrKit: ObservableObject {
         legacyTextureCache = nil
         beforePreviewKey = nil
         negativeStatistics = [:]
+        cropResults = [:]
         cachedSourceImage = nil
         cachedSourceURL = nil
         log("Source image cache cleared")
@@ -601,7 +603,7 @@ public class RawrKit: ObservableObject {
         // Film sources and cleanup already run at native resolution in preview.
         // Their file-identity checks remain active, so export can reuse those
         // immutable GPU results. Legacy preview inputs still require a reload.
-        let nativeSources = nodeGraph.nodes.contains { $0.type == .negativeDevelop || $0.type == .dustRemoval }
+        let nativeSources = nodeGraph.nodes.contains { $0.type == .negativeDevelop || $0.type == .dustRemoval || $0.type == .autoCrop }
         isFullResolutionMode = true
         if !nativeSources { clearSourceImageCache() }
 

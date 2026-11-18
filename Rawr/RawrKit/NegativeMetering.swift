@@ -75,15 +75,17 @@ actor NegativeMetering {
     func analyze(_ input: ImageData, parameters: [String: Double]) async -> NegativeMeteringOutput? {
         let stageStart = ProcessInfo.processInfo.systemUptime
         guard let manual = NegativeDevelopParameters(parameters), pipelines.count == 6 else { return nil }
-        let autoBase = parameters["autoBase"] == 1
-        let key = Key(source: input.contentID, base: autoBase ? .zero : manual.base)
+        let detectedBase = parameters["autoBase"] == 1 ? input.metadata.cropFilmBase : nil
+        let effectiveBase = detectedBase ?? manual.base
+        let autoBase = parameters["autoBase"] == 1 && detectedBase == nil
+        let key = Key(source: input.contentID, base: autoBase ? .zero : effectiveBase)
         if let cached = cache[key] {
             context.trace.record("meter-cache", since: stageStart, device: context.device, cached: true)
             return cached
         }
         let width = min(512, input.texture.width), height = min(512, input.texture.height)
         let count = width * height, groups = (count + 1023) / 1024
-        var cfg = Config(grid: SIMD4(UInt32(width), UInt32(height), UInt32(count), autoBase ? 1 : 0), base: manual.base)
+        var cfg = Config(grid: SIMD4(UInt32(width), UInt32(height), UInt32(count), autoBase ? 1 : 0), base: effectiveBase)
         guard let samplesLease = context.resources.buffer(length: count * 16),
               let partialLease = context.resources.buffer(length: groups * 3 * 4096 * 4),
               let histogramLease = context.resources.buffer(length: 3 * 4096 * 4),
@@ -148,7 +150,11 @@ actor NegativeMetering {
             context.log("Negative metering GPU failed: \(command.error?.localizedDescription ?? "unknown")", level: .error)
             return nil
         }
-        let result = summary.contents().load(as: NegativeMeteringResult.self)
+        var result = summary.contents().load(as: NegativeMeteringResult.self)
+        if let detectedBase {
+            result.base = detectedBase
+            withUnsafeBytes(of: &result) { summary.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        }
         let output = NegativeMeteringOutput(lease: summaryLease, result: result, gpuSeconds: command.gpuEndTime - command.gpuStartTime)
         computationCount += 1
         if cache[key] == nil { order.append(key) }
