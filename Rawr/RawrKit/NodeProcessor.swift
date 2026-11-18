@@ -173,6 +173,6 @@ open class MetalNodeProcessor: NodeProcessor {
         guard let image = CIImage(mtlTexture: texture, options: [.colorSpace: colorSpace]) else { return nil }
         let renderer = context ?? CIContext(mtlDevice: texture.device)
         return renderer.createCGImage(image, from: image.extent,
-            format: texture.pixelFormat == .rgba32Float ? .RGBAf : .RGBAh, colorSpace: colorSpace)
+            format: texture.pixelFormat == .rgba32Float ? .RGBAf : .RGBAh, colorSpace: colorSpace, deferred: false)
     }
 }

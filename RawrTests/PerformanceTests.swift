@@ -53,6 +53,34 @@ struct PerformanceTests {
         withExtendedLifetime(result) {}
     }
 
+    @Test func `Published CPU image stays immutable when its pooled GPU texture is reused`() async throws {
+        let context = try context()
+        var lease: TextureLease? = try #require(context.resources.texture(format: .rgba32Float, width: 8, height: 8))
+        let identity = ObjectIdentifier(try #require(lease).texture)
+        func fill(_ texture: MTLTexture, red: CGFloat, blue: CGFloat) async throws {
+            let command = try #require(context.commandQueue.makeCommandBuffer())
+            context.linearCIContext.render(CIImage(color: CIColor(red: red, green: 0, blue: blue)),
+                to: texture, commandBuffer: command, bounds: CGRect(x: 0, y: 0, width: 8, height: 8),
+                colorSpace: NegativeImageIO.colorSpace)
+            command.commit()
+            await command.completed()
+            try #require(command.status == .completed)
+        }
+        try await fill(try #require(lease).texture, red: 1, blue: 0)
+        let snapshot = try #require(MetalNodeProcessor(nodeType: .preview).createCGImage(
+            from: try #require(lease).texture, context: context.linearCIContext))
+        lease = nil
+        let recycled = try #require(context.resources.texture(format: .rgba32Float, width: 8, height: 8))
+        #expect(ObjectIdentifier(recycled.texture) == identity)
+        try await fill(recycled.texture, red: 0, blue: 1)
+        var pixel = SIMD4<Float>.zero
+        context.linearCIContext.render(CIImage(cgImage: snapshot), toBitmap: &pixel, rowBytes: 16,
+            bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: NegativeImageIO.colorSpace)
+        #expect(abs(pixel.x - 1) < 1e-5)
+        #expect(abs(pixel.z) < 1e-5)
+        withExtendedLifetime(recycled) {}
+    }
+
     @Test func `Buffer pool respects storage and does not recycle live summaries`() throws {
         let pool = try context().resources
         var scratch: BufferLease? = try #require(pool.buffer(length: 4096))

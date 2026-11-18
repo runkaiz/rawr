@@ -86,6 +86,6 @@ enum NegativeImageIO {
         }
         // Profiled unsigned 16-bit linear TIFF/preview, quantized only here.
         return context.createCGImage(image, from: image.extent, format: texture.pixelFormat == .rgba16Float ? .RGBAh : .RGBA16,
-            colorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!)
+            colorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!, deferred: false)
     }
 }
