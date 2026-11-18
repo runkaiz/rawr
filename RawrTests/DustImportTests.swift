@@ -58,6 +58,17 @@ struct DustImportTests {
         #expect(source.infraredTexture != nil)
         #expect(source.texture.width==24 && source.texture.height==32)
         #expect(source.infraredTexture?.width==24 && source.infraredTexture?.height==32)
+        let ir=try #require(source.infraredTexture)
+        let buffer=try #require(ctx.device.makeBuffer(length:ir.width*ir.height*4))
+        let command=try #require(ctx.commandQueue.makeCommandBuffer()), blit=try #require(command.makeBlitCommandEncoder())
+        blit.copy(from:ir,sourceSlice:0,sourceLevel:0,sourceOrigin:MTLOrigin(),
+            sourceSize:MTLSize(width:ir.width,height:ir.height,depth:1),to:buffer,destinationOffset:0,
+            destinationBytesPerRow:ir.width*4,destinationBytesPerImage:ir.width*ir.height*4)
+        blit.endEncoding(); command.commit(); await command.completed()
+        try #require(command.status == .completed)
+        let samples=Array(UnsafeBufferPointer(start:buffer.contents().assumingMemoryBound(to:Float.self),count:ir.width*ir.height))
+        #expect(abs(try #require(samples.max())-54000.0/65535.0)<0.0001)
+        #expect(abs(try #require(samples.min())-8000.0/65535.0)<0.0001)
         let alpha=root.appendingPathComponent("alpha.tiff")
         try scanner(alpha,little:little,extra:2)
         #expect(try InfraredImageIO.scannerTIFF(url:alpha,context:ctx)==nil)

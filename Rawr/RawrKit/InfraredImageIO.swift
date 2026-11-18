@@ -30,7 +30,7 @@ enum InfraredImageIO {
               let command = context.commandQueue.makeCommandBuffer() else { throw ImageDecoder.DecodeError.invalidImage }
         let normalized = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
         context.linearCIContext.render(normalized, to: texture, commandBuffer: command,
-            bounds: CGRect(x: 0, y: 0, width: d.width, height: d.height), colorSpace: colorSpace)
+            bounds: CGRect(x: 0, y: 0, width: d.width, height: d.height), colorSpace: colorSpace ?? NegativeImageIO.colorSpace)
         command.commit()
         command.waitUntilCompleted()
         guard command.status == .completed else { throw ImageDecoder.DecodeError.invalidImage }
