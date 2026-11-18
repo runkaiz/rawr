@@ -779,13 +779,19 @@ public class RawrKit: ObservableObject {
         defer { try? FileManager.default.removeItem(at: temporary) }
         let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
         do {
-            // Core Image owns boundary rendering and file writing; no explicit
-            // full-frame Swift array or intermediate CGImage is allocated.
+            // Render only at the terminal encoding boundary, without an eager
+            // full-frame Swift array or CPU bitmap in the processing graph.
             switch format {
             case .tiff:
-                try context.linearCIContext.writeTIFFRepresentation(of: image, to: temporary,
+                // A deferred provider keeps the texture on GPU until ImageIO
+                // requests pixels. ImageIO also exposes TIFF compression,
+                // unlike Core Image's TIFF file writer on the current SDK.
+                guard let provider = context.linearCIContext.createCGImage(image, from: image.extent,
                     format: output.metadata.legacyFloatOutput ? .RGBAh : .RGBA16,
-                    colorSpace: output.metadata.legacyFloatOutput ? NegativeImageIO.colorSpace : colorSpace, options: [:])
+                    colorSpace: output.metadata.legacyFloatOutput ? NegativeImageIO.colorSpace : colorSpace,
+                    deferred: true) else { return false }
+                return await saveImage(provider, to: url, format: format,
+                    replaceExisting: replaceExisting, recordTiming: false)
             case .png:
                 try context.linearCIContext.writePNGRepresentation(of: image, to: temporary, format: .RGBA16, colorSpace: colorSpace, options: [:])
             case .jpeg(let quality):
@@ -812,9 +818,10 @@ public class RawrKit: ObservableObject {
         }
     }
 
-    private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat, replaceExisting: Bool = true) async -> Bool {
+    private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat,
+                           replaceExisting: Bool = true, recordTiming: Bool = true) async -> Bool {
         let stageStart = ProcessInfo.processInfo.systemUptime
-        defer { if let device { processingContext?.trace.record("export", since: stageStart, device: device) } }
+        defer { if recordTiming, let device { processingContext?.trace.record("export", since: stageStart, device: device) } }
         let temporary = url.deletingLastPathComponent().appendingPathComponent(".rawr-\(UUID().uuidString).tmp")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let destination = CGImageDestinationCreateWithURL(temporary as CFURL, format.utType.identifier as CFString, 1, nil)
@@ -828,7 +835,7 @@ public class RawrKit: ObservableObject {
 
         switch format {
         case .tiff:
-            properties[kCGImagePropertyTIFFCompression] = 1 // No compression for maximum quality
+            properties[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFCompression: 1]
         case .jpeg(let quality):
             properties[kCGImageDestinationLossyCompressionQuality] = quality
         case .png:

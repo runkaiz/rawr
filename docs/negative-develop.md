@@ -40,7 +40,8 @@ full-image CPU readback between stages. The source and result textures are
 private GPU resources. Command failures propagate as an unsuccessful render.
 A CGImage is created only at the display-sized Preview boundary, as unsigned
 16-bit linear sRGB with its ICC profile. Export writes the GPU result directly
-through Core Image's file writer. Display conversion is performed by the
+through a deferred Core Image provider and ImageIO for TIFF, or Core Image's
+file writer for PNG/JPEG. Display conversion is performed by the
 profile-aware SwiftUI image view. TIFF contains linear positive RGB, not an
 sRGB transfer curve; encoding quantization occurs only at the terminal boundary.
 Alpha is premultiplied at texture boundaries, and straight RGB is used for logs.

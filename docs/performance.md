@@ -2,8 +2,9 @@
 
 Rawr's graph keeps effect results in Metal textures. Legacy effects no longer
 read each texture back through a Swift array and CGContext. Preview creates a
-display-sized image at the terminal boundary; GPU-only export passes the texture
-directly to Core Image's file writer. The Before image is reused until its source
+display-sized image at the terminal boundary. TIFF export hands a deferred
+Core Image provider to ImageIO for explicit uncompressed encoding; PNG/JPEG use
+Core Image file writers. The Before image is reused until its source
 or preview size changes. Negative Develop still evaluates the full-resolution
 source before preview resampling, so local dust supports and global metering do
 not change with the preview size. Slider requests coalesce pending graph edits;
@@ -54,8 +55,8 @@ longer graphs, and limits the budget to half the recommended GPU working set or
 one third of physical RAM. RAW files and unknown dimensions use one worker.
 Only compact summaries accumulate during roll calibration. Logs retain 500 rows.
 
-Core Image file writing and disabled intermediate caching avoid an explicit
-full-frame CPU image at export. This delegates boundary rendering to Core Image;
+Deferred TIFF encoding, Core Image file writing and disabled intermediate
+caching avoid eagerly materializing a full-frame CPU image at export. This delegates boundary rendering to Core Image;
 the compute graph still requires full-size source/result textures. It is not an
 out-of-core decoder or a guarantee that a 128 MP graph fits a 4 GiB machine.
 
