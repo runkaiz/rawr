@@ -11,14 +11,14 @@ struct PerformanceTests {
     @Test func `Long rolls retain recent logs with an advancing scroll identity`() async {
         let kit = RawrKit()
         for index in 0..<750 { kit.log("line \(index)") }
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async { continuation.resume() }
         }
         #expect(kit.logs.count == 500)
         #expect(kit.logs.first?.message == "line 250")
         let lastID = kit.logs.last?.id
         kit.log("final frame")
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.main.async { continuation.resume() }
         }
         #expect(kit.logs.count == 500)
@@ -67,7 +67,7 @@ struct PerformanceTests {
     @Test func `Live texture leases never alias and released textures are reused`() throws {
         let context = try context()
         let pool = context.resources
-        var first: TextureLease? = try #require(pool.texture(format: .rgba32Float, width: 32, height: 32))
+        var first: TextureLease? = pool.texture(format: .rgba32Float, width: 32, height: 32)
         let identity = ObjectIdentifier(try #require(first).texture)
         let second = try #require(pool.texture(format: .rgba32Float, width: 32, height: 32))
         #expect(identity != ObjectIdentifier(second.texture))
@@ -82,7 +82,7 @@ struct PerformanceTests {
 
     @Test func `Image results retain their pooled textures`() throws {
         let context = try context()
-        var lease: TextureLease? = try #require(context.resources.texture(format: .rgba32Float, width: 8, height: 8))
+        var lease: TextureLease? = context.resources.texture(format: .rgba32Float, width: 8, height: 8)
         let result = ImageData(lease: try #require(lease), metadata: ImageMetadata())
         lease = nil
         let other = try #require(context.resources.texture(format: .rgba32Float, width: 8, height: 8))
@@ -92,7 +92,7 @@ struct PerformanceTests {
 
     @Test func `Published CPU image stays immutable when its pooled GPU texture is reused`() async throws {
         let context = try context()
-        var lease: TextureLease? = try #require(context.resources.texture(format: .rgba32Float, width: 8, height: 8))
+        var lease: TextureLease? = context.resources.texture(format: .rgba32Float, width: 8, height: 8)
         let identity = ObjectIdentifier(try #require(lease).texture)
         func fill(_ texture: MTLTexture, red: CGFloat, blue: CGFloat) async throws {
             let command = try #require(context.commandQueue.makeCommandBuffer())
@@ -103,9 +103,10 @@ struct PerformanceTests {
             await command.completed()
             try #require(command.status == .completed)
         }
-        try await fill(try #require(lease).texture, red: 1, blue: 0)
+        let firstTexture = try #require(lease).texture
+        try await fill(firstTexture, red: 1, blue: 0)
         let snapshot = try #require(MetalNodeProcessor(nodeType: .preview).createCGImage(
-            from: try #require(lease).texture, context: context.linearCIContext))
+            from: firstTexture, context: context.linearCIContext))
         lease = nil
         let recycled = try #require(context.resources.texture(format: .rgba32Float, width: 8, height: 8))
         #expect(ObjectIdentifier(recycled.texture) == identity)
@@ -120,7 +121,7 @@ struct PerformanceTests {
 
     @Test func `Buffer pool respects storage and does not recycle live summaries`() throws {
         let pool = try context().resources
-        var scratch: BufferLease? = try #require(pool.buffer(length: 4096))
+        var scratch: BufferLease? = pool.buffer(length: 4096)
         let identity = ObjectIdentifier(try #require(scratch).buffer)
         scratch = nil
         let reused = try #require(pool.buffer(length: 4096))
@@ -134,8 +135,8 @@ struct PerformanceTests {
     @Test func `Idle pool evicts scratch so large preview outputs can be reused`() throws {
         let device = try #require(MTLCreateSystemDefaultDevice())
         let pool = MetalResources(device: device, idleByteLimit: 1024 * 1024)
-        var scratch: BufferLease? = try #require(pool.buffer(length: 768 * 1024))
-        var output: BufferLease? = try #require(pool.buffer(length: 512 * 1024))
+        var scratch: BufferLease? = pool.buffer(length: 768 * 1024)
+        var output: BufferLease? = pool.buffer(length: 512 * 1024)
         let identity = ObjectIdentifier(try #require(output).buffer)
         scratch = nil
         output = nil
@@ -162,6 +163,89 @@ struct PerformanceTests {
         processor.clearCache()
         let cleared = try #require(await processor.process(inputs: ["Input": image], node: node, context: context)?["Output"])
         #expect(cleared.contentID != repaired.contentID)
+    }
+
+    @Test func `Graph mask demand skips unused color output and invalidates the cleanup cache`() async throws {
+        let context = try context(), image = try input(context)
+        let processor = DustRemovalProcessor(context: context)
+        var node = NodeData(type: .dustRemoval, position: .zero)
+        context.requestedMasks = []
+        let rgb = try #require(await processor.process(inputs: ["Input": image], node: node, context: context))
+        #expect(rgb["Mask"] == nil)
+        #expect(rgb["Output"]?.metadata.dustMaskPreview == nil)
+        context.requestedMasks = [node.id]
+        let mask = try #require(await processor.process(inputs: ["Input": image], node: node, context: context))
+        #expect(mask["Mask"]?.texture.width == image.texture.width)
+        #expect(mask["Output"]?.contentID != rgb["Output"]?.contentID)
+        context.requestedMasks = []
+        node.parameters["maskPreview"] = 1
+        let overlay = try #require(await processor.process(inputs: ["Input": image], node: node, context: context))
+        #expect(overlay["Output"]?.metadata.dustMaskPreview?.width == image.texture.width)
+    }
+
+    @Test(arguments: [0.0, 1.0])
+    func `Tiled infrared closing and repair match whole frame at seams and image edges`(ghost: Double) async throws {
+        let context = try context(), w = 64, h = 557
+        var rgb = [SIMD4<Float>](repeating: .zero, count: w * h)
+        var infrared = [Float](repeating: 0, count: w * h)
+        for y in 0..<h { for x in 0..<w {
+            let t: Float = 0.45 + 0.04 * sin(Float(x) / 8) + 0.03 * cos(Float(y) / 11)
+            rgb[y*w+x] = SIMD4(0.8*t, 0.4*t, 0.2*t, 1)
+            infrared[y*w+x] = 0.85 - 0.3 * Float(y) / Float(h) + 0.015 * sin(Float(x) / 7)
+        } }
+        for y in [0, 16, 17, 32, 33, 510, 511, 512, 513, 555, 556] {
+            rgb[y*w+w/2] = SIMD4(0.008, 0.004, 0.002, 1)
+            infrared[y*w+w/2] *= 0.948
+        }
+        func upload(_ format: MTLPixelFormat, bytes: UnsafeRawBufferPointer, row: Int) throws -> MTLTexture {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: w, height: h, mipmapped: false)
+            d.storageMode = .shared
+            d.usage = [.shaderRead, .shaderWrite]
+            let texture = try #require(context.device.makeTexture(descriptor: d))
+            texture.replace(region: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0, withBytes: bytes.baseAddress!, bytesPerRow: row)
+            return texture
+        }
+        let visible = try rgb.withUnsafeBytes { try upload(.rgba32Float, bytes: $0, row: w * 16) }
+        let ir = try infrared.withUnsafeBytes { try upload(.r32Float, bytes: $0, row: w * 4) }
+        var metadata = ImageMetadata(width: w, height: h)
+        metadata.domain = .linearTransmittance
+        let image = ImageData(texture: visible, metadata: metadata, infraredTexture: ir)
+        var node = NodeData(type: .dustRemoval, position: .zero)
+        node.parameters["irGhost"] = ghost
+        node.parameters["sensitivity"] = 1
+        node.healSpots = [HealSpot(x: 0.5, y: 1 - 512.5 / Double(h), radius: 0.04)]
+        func bytes(_ texture: MTLTexture) async throws -> Data {
+            let row = w * (texture.pixelFormat == .rgba16Float ? 8 : 16)
+            let buffer = try #require(context.device.makeBuffer(length: row * h, options: .storageModeShared))
+            let command = try #require(context.commandQueue.makeCommandBuffer())
+            let blit = try #require(command.makeBlitCommandEncoder())
+            blit.copy(from: texture, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                sourceSize: MTLSize(width: w, height: h, depth: 1), to: buffer, destinationOffset: 0,
+                destinationBytesPerRow: row, destinationBytesPerImage: row * h)
+            blit.endEncoding()
+            command.commit()
+            await command.completed()
+            try #require(command.status == .completed)
+            return Data(bytes: buffer.contents(), count: row * h)
+        }
+        let reference = try #require(await DustRemovalProcessor(context: context, rowsPerTile: h).process(
+            inputs: ["Input": image], node: node, context: context))
+        for rows in [17, 512] {
+            let tiled = try #require(await DustRemovalProcessor(context: context, rowsPerTile: rows).process(
+                inputs: ["Input": image], node: node, context: context))
+            defer { withExtendedLifetime([reference, tiled]) {} }
+            for port in ["Output", "Mask"] {
+                let expectedImage = try #require(reference[port])
+                let actualImage = try #require(tiled[port])
+                let expected = try await bytes(expectedImage.texture)
+                let actual = try await bytes(actualImage.texture)
+                #expect(actual == expected, "Tile halos must preserve every output and mask bit")
+            }
+        }
+        let output = try #require(reference["Output"])
+        let repaired = try await bytes(output.texture)
+        let value = repaired.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: (512*w+w/2)*16, as: Float.self) }
+        #expect(abs(value - rgb[512*w+w/2].x) > 0.01, "The fixture must exercise repair")
     }
 
     @Test func `Legacy effects produce GPU resident results without CPU images`() async throws {

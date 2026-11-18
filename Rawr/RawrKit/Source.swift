@@ -776,8 +776,8 @@ public class RawrKit: ObservableObject {
         defer { try? FileManager.default.removeItem(at: temporary) }
         let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
         do {
-            // Core Image's demand-driven renderer tiles the image representation;
-            // no full-frame Swift array or intermediate CGImage is allocated.
+            // Core Image owns boundary rendering and file writing; no explicit
+            // full-frame Swift array or intermediate CGImage is allocated.
             switch format {
             case .tiff:
                 try context.linearCIContext.writeTIFFRepresentation(of: image, to: temporary,

@@ -38,8 +38,10 @@ kernel void dustIRFit(texture2d<float, access::read> rgb [[texture(0)]],
 kernel void dustIRCorrect(texture2d<float, access::read> rgb [[texture(0)]],
                           texture2d<float, access::read> ir [[texture(1)]],
                           texture2d<float, access::write> out [[texture(2)]],
-                          device const float4 &fit [[buffer(1)]], uint2 q [[thread_position_in_grid]]) {
-    float v=irValue(ir,int2(q))-fit.x*(luminance(rgb.read(q).rgb)-0.5f);
+                          device const float4 &fit [[buffer(1)]], constant uint4 &tile [[buffer(3)]],
+                          uint2 q [[thread_position_in_grid]]) {
+    uint2 sourcePoint=uint2(q.x,q.y+tile.x);
+    float v=irValue(ir,int2(sourcePoint))-fit.x*(luminance(rgb.read(sourcePoint).rgb)-0.5f);
     out.write(float4(max(isfinite(v)?v:0.0f,0.00001f)),q);
 }
 // Separable closing reference: bridge dark occlusions without blurring the scan.
@@ -52,9 +54,13 @@ kernel void dustIRDilateX(texture2d<float, access::read> in [[texture(0)]],
 }
 kernel void dustIRDilateY(texture2d<float, access::read> in [[texture(0)]],
                           texture2d<float, access::write> out [[texture(1)]],
-                          constant DustParameters &p [[buffer(0)]], uint2 q [[thread_position_in_grid]]) {
+                          constant DustParameters &p [[buffer(0)]], constant uint4 &tile [[buffer(3)]],
+                          uint2 q [[thread_position_in_grid]]) {
     float v=0; int r=int(p.controls.y)*2+2;
-    for(int y=-r;y<=r;++y) v=max(v,in.read(bounded(int2(q)+int2(0,y),in)).r);
+    for(int y=-r;y<=r;++y) {
+        uint row=uint(clamp(int(q.y)+y,0,int(tile.z)-1));
+        v=max(v,in.read(uint2(q.x,row)).r);
+    }
     out.write(float4(v),q);
 }
 
@@ -90,13 +96,16 @@ kernel void dustMask(texture2d<float, access::read> image [[texture(0)]],
                      texture2d<float, access::read> background [[texture(2)]],
                      texture2d<float, access::write> mask [[texture(3)]],
                      constant DustParameters &p [[buffer(0)]],
-                     device const float4 *spots [[buffer(2)]], uint2 q [[thread_position_in_grid]]) {
+                     device const float4 *spots [[buffer(2)]], constant uint4 &tile [[buffer(3)]],
+                     uint2 position [[thread_position_in_grid]]) {
+    uint2 q=uint2(position.x,position.y+tile.y);
+    uint2 samplePoint=uint2(q.x,q.y-tile.x);
     float score=0;
     if(p.flags.x) {
         // Average the dilated envelope to soften scanner noise in the reference.
         float base=0;
-        for(int k=-2;k<=2;++k) base+=background.read(bounded(int2(q)+int2(k,0),background)).r*0.2f;
-        float ratio=corrected.read(q).r/max(base,1e-5f);
+        for(int k=-2;k<=2;++k) base+=background.read(bounded(int2(samplePoint)+int2(k,0),background)).r*0.2f;
+        float ratio=corrected.read(samplePoint).r/max(base,1e-5f);
         float threshold=mix(0.35f,0.04f,p.controls.x);
         score=smoothstep(threshold,threshold*1.6f,1-ratio);
     } else {
@@ -123,7 +132,7 @@ kernel void dustRepair(texture2d<float, access::read> image [[texture(0)]],
                        constant DustParameters &p [[buffer(0)]],
                        device const float4 *spots [[buffer(2)]], uint2 q [[thread_position_in_grid]]) {
     float amount=mask.read(q).r;
-    maskImage.write(float4(amount,amount,amount,1),q);
+    if(p.flags.z) maskImage.write(float4(amount,amount,amount,1),q);
     float4 source=image.read(q);
     if(amount<=0) { output.write(source,q); return; }
     int radius=int(p.controls.y)+2;

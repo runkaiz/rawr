@@ -84,7 +84,8 @@ enum NegativeImageIO {
             let scale = limit / max(image.extent.width, image.extent.height)
             image = image.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
         }
-        // Profiled unsigned 16-bit linear TIFF/preview, quantized only here.
+        // Negative/mask output uses unsigned 16-bit linear RGB. Legacy effects
+        // retain half-float HDR values at this terminal boundary.
         return context.createCGImage(image, from: image.extent, format: legacyFloat ? .RGBAh : .RGBA16,
             colorSpace: legacyFloat ? colorSpace : CGColorSpace(name: CGColorSpace.linearSRGB)!, deferred: false)
     }

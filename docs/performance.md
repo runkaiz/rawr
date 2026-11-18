@@ -26,6 +26,15 @@ Metal resources, but that alone does not stop the pool from reusing a resource;
 the lease owns that protection. Scratch leases live through command completion.
 Export explicitly retains its input through the asynchronous file write.
 
+IR correction and closing reuse three float32 strips with 512 core rows and
+halos covering the closing radius. Only the full scalar mask and final images
+span the frame. At 6000x4000, these three scratch textures need at most about
+40 MB instead of 288 MB. Repair runs after the complete mask is ready, preserving
+donors across tile boundaries. The color mask is allocated only when connected
+or displayed; ordinary RGB processing avoids another 192 MB at 24 MP. Swift
+Testing compares both 17-row and 512-row execution bit for bit with a whole-frame
+reference, including ghost correction, manual repairs, seams and image edges.
+
 The executor releases an ancestor after its final reachable consumer completes,
 and serializes requests even when callers invoke its actor concurrently. Source
 uploads are reused by URL, modification time, size, inode and resolution mode.

@@ -84,7 +84,6 @@ actor NegativeMetering {
         let width = min(512, input.texture.width), height = min(512, input.texture.height)
         let count = width * height, groups = (count + 1023) / 1024
         var cfg = Config(grid: SIMD4(UInt32(width), UInt32(height), UInt32(count), autoBase ? 1 : 0), base: manual.base)
-        let device = context.device
         guard let samplesLease = context.resources.buffer(length: count * 16),
               let partialLease = context.resources.buffer(length: groups * 3 * 4096 * 4),
               let histogramLease = context.resources.buffer(length: 3 * 4096 * 4),

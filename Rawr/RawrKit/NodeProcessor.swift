@@ -78,6 +78,9 @@ public class ProcessingContext {
     let resources: MetalResources
     let trace: PipelineTrace
     var negativeInputIDs: Set<UUID> = []
+    // nil preserves the standalone processor API (all outputs). Graph requests
+    // populate this set so unused color-mask images need not be allocated.
+    var requestedMasks: Set<UUID>?
 
     public convenience init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext, logger: RawrKit? = nil) {
         self.init(device: device, commandQueue: commandQueue, ciContext: ciContext,

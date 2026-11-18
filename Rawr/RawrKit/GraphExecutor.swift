@@ -62,6 +62,10 @@ public actor GraphExecutor {
             for edge in nodeGraph.connections where edge.toNodeId == id { visit(edge.fromNodeId) }
         }
         for node in nodeGraph.nodes where node.type == .preview { visit(node.id) }
+        context.requestedMasks = Set(nodeGraph.connections.filter {
+            $0.fromOutput == "Mask" && reachable.contains($0.toNodeId)
+        }.map(\.fromNodeId))
+        defer { context.requestedMasks = nil }
         remainingConsumers = [:]
         for edge in nodeGraph.connections where reachable.contains(edge.toNodeId) {
             remainingConsumers[edge.fromNodeId, default: 0] += 1
