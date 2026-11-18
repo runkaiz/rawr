@@ -60,13 +60,18 @@ struct PipelineBenchmark {
         func measure(_ name: String, _ body: () async -> Bool) async throws {
             _ = context.trace.drain()
             let start = ProcessInfo.processInfo.systemUptime
-            guard await body() else { throw CocoaError(.coderInvalidValue) }
+            guard await body() else {
+                fputs("Benchmark failed: \(name)\n", stderr)
+                for entry in kit.logs.suffix(20) { fputs(entry.message + "\n", stderr) }
+                throw CocoaError(.coderInvalidValue)
+            }
             let elapsed = ProcessInfo.processInfo.systemUptime - start
             var usage = rusage()
             getrusage(RUSAGE_SELF, &usage)
             samples.append(Sample(scenario: name, seconds: elapsed, events: context.trace.drain(),
                 peakRSSBytes: Int(usage.ru_maxrss), metalBytes: context.device.currentAllocatedSize))
             print("\(name): \(elapsed) seconds")
+            fflush(stdout)
         }
         var single = graph(fixture, infrared: ir)
         try await measure("cold-preview") { await kit.executeGraph(single) }
@@ -113,11 +118,20 @@ struct PipelineBenchmark {
     }
 
     static func writeFixture(_ url: URL, width: Int, height: Int, infrared: Bool, context: ProcessingContext) throws {
-        let image = CIFilter(name: "CILinearGradient", parameters: [
+        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        func color(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CIColor {
+            CIColor(red: r, green: g, blue: b, colorSpace: NegativeImageIO.colorSpace)!
+        }
+        let gradient = CIFilter(name: "CILinearGradient", parameters: [
             "inputPoint0": CIVector(x: 0, y: 0), "inputPoint1": CIVector(x: CGFloat(width), y: CGFloat(height)),
-            "inputColor0": CIColor(red: infrared ? 0.35 : 0.025, green: 0.015, blue: 0.01),
-            "inputColor1": CIColor(red: 0.9, green: infrared ? 0.9 : 0.55, blue: infrared ? 0.9 : 0.3)
-        ])!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: width, height: height))
+            "inputColor0": infrared ? color(0.65, 0.65, 0.65) : color(0.008, 0.004, 0.002),
+            "inputColor1": infrared ? color(0.85, 0.85, 0.85) : color(0.72, 0.36, 0.18)
+        ])!.outputImage!
+        // A real base-estimation fixture needs a flat clear border. A gradient
+        // touching every edge correctly fails the roll's confidence gate.
+        let base = CIImage(color: infrared ? color(0.8, 0.8, 0.8) : color(0.8, 0.4, 0.2)).cropped(to: bounds)
+        let interior = bounds.insetBy(dx: bounds.width * 0.05, dy: bounds.height * 0.05)
+        let image = gradient.cropped(to: interior).composited(over: base)
         let cg = context.linearCIContext.createCGImage(image, from: image.extent, format: .RGBA16, colorSpace: NegativeImageIO.colorSpace)!
         let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.tiff.identifier as CFString, 1, nil)!
         CGImageDestinationAddImage(destination, cg, [kCGImagePropertyTIFFCompression: 1] as CFDictionary)

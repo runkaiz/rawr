@@ -76,8 +76,8 @@ no host build is needed. The Firstmate runner additionally holds the shared VM
 lock, uses ad hoc signing with no team, and guards host compute with HID idle
 time >=10 minutes throughout the run. No UI test target is needed.
 
-The fixtures are generated linear gradients with a separate registered IR
-frame; 36 distinct paths link to the same visible fixture bytes. They exercise
+The fixtures are generated linear gradients inside a flat clear-film border,
+with a separate registered IR frame; 36 distinct paths link to the same visible fixture bytes. They exercise
 decode, dust/IR, metering, development, preview, TIFF export, batch scheduling and
 roll calibration, but do not model varied photographic content or disk-cold
 private scans. Fixture generation is excluded from reported scenario time.
