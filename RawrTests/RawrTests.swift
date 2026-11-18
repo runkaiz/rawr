@@ -95,6 +95,8 @@ struct RawrTests {
         #expect(await kit.executeGraph(flow))
         #expect(kit.processedPreviewImage?.width == 64)
         let output = root.appendingPathComponent("full.tiff")
+        // The file-export picker creates an empty destination before RawrKit writes it.
+        try Data().write(to: output)
         #expect(await kit.exportImage(flow, to: output))
         let exported = try ImageDecoder(context: CIContext()).decode(url: output)
         #expect(exported.width == 256)
