@@ -23,7 +23,7 @@ public class RawrKit: ObservableObject {
 
     // Graph execution
     private var graphExecutor: GraphExecutor?
-    private var processingContext: ProcessingContext?
+    var processingContext: ProcessingContext?
     @MainActor private var operationTask: Task<Void, Never>?
     @MainActor private var operations: [(operation: @MainActor () async -> Bool, completion: CheckedContinuation<Bool, Never>)] = []
 
@@ -245,7 +245,7 @@ public class RawrKit: ObservableObject {
     }
 
     @MainActor
-    private func enqueue(_ operation: @escaping @MainActor () async -> Bool) async -> Bool {
+    func enqueue(_ operation: @escaping @MainActor () async -> Bool) async -> Bool {
         await withCheckedContinuation { completion in
             operations.append((operation, completion))
             guard operationTask == nil else { return }
@@ -646,6 +646,15 @@ public class RawrKit: ObservableObject {
             return false
         }
 
+        for node in nodeGraph.nodes where node.type == .negativeDevelop {
+            if let roll = node.rollBaseline {
+                guard roll.isSupported, roll.frames.count == imageURLs.count,
+                      imageURLs.allSatisfy({ roll.parameters(for: $0, node: node.parameters) != nil }) else {
+                    log("Roll folder changed or baseline is unsupported; measure again before batch export", level: .error)
+                    return false
+                }
+            }
+        }
         log("Starting batch export of \(imageURLs.count) images to: \(outputFolder.lastPathComponent)")
 
         // Switch to full resolution mode

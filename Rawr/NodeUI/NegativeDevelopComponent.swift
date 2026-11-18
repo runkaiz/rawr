@@ -2,8 +2,13 @@ import SwiftUI
 
 struct NegativeDevelopComponent: NodeUIComponent {
     func build(node: NodeData, context: NodeUIContext) -> some View {
-        NegativeDevelopControls(parameters: node.parameters, statistics: context.negativeStatistics,
-            onChange: context.onParameterChange)
+        VStack(alignment: .leading, spacing: 8) {
+            RollBaselineControls(baseline: node.rollBaseline, parameters: node.parameters, selectedName: context.rollFrameName,
+                onMeasure: { context.onCustomAction?("measureRoll", nil) },
+                onChange: { context.onCustomAction?("setRoll", $0) })
+            NegativeDevelopControls(parameters: node.parameters, statistics: context.negativeStatistics,
+                onChange: context.onParameterChange)
+        }
     }
 }
 

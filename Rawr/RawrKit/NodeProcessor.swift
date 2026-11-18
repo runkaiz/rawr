@@ -24,6 +24,7 @@ public struct ImageMetadata {
     public var colorSpace: CGColorSpace?
     public var orientation: UInt32 = 1
     public var domain: ImageDomain = .unspecified
+    var sourceURL: URL?
 
     public init(width: Int = 0, height: Int = 0, colorSpace: CGColorSpace? = nil, orientation: UInt32 = 1) {
         self.width = width

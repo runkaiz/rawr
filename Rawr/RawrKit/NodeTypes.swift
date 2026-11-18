@@ -46,6 +46,7 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
     public var outputs: [String] = []
     public var imageURL: URL?
     public var imageBookmark: Data? // Security-scoped bookmark data
+    public var rollBaseline: RollBaseline?
     public var parameters: [String: Double] = [:] // Node-specific parameters
 
     public init(id: UUID = UUID(), type: NodeType, position: CGPoint) {
@@ -105,6 +106,7 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
         position = try container.decode(CGPoint.self, forKey: .position)
         imageURL = try container.decodeIfPresent(URL.self, forKey: .imageURL)
         imageBookmark = try container.decodeIfPresent(Data.self, forKey: .imageBookmark)
+        rollBaseline = try container.decodeIfPresent(RollBaseline.self, forKey: .rollBaseline)
         parameters = try container.decodeIfPresent([String: Double].self, forKey: .parameters) ?? [:]
 
         // Ignore decoded inputs/outputs and set expected values based on type (migration for old documents)

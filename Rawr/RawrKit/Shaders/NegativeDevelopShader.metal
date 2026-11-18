@@ -33,7 +33,7 @@ kernel void negativeDevelop(texture2d<float, access::read> input [[texture(0)]],
         float density = -precise::log10(transmission);
         float offset = automatic.z ? meter.offset[c] : p.balance[c];
         float slope = automatic.z ? meter.slope[c] : p.slope[c];
-        density = (density - offset) / slope;
+        density = (density - offset) / slope - p.balance.w;
         uint endpointChannel = automatic.z ? 1 : c;
         float low = automatic.y ? meter.low[endpointChannel] : p.low[c];
         float high = automatic.y ? meter.high[endpointChannel] : p.high[c];

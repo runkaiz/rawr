@@ -107,6 +107,21 @@ struct EditorView: View {
                     ),
                     selectedNodeType: $selectedNodeType,
                     negativeStatistics: rawrKit.negativeStatistics,
+                    onMeasureRoll: { nodeID in
+                        guard let graph = document.flowDocument?.nodeGraph else { return }
+                        Task { @MainActor in
+                            guard let baseline = await rawrKit.measureRoll(graph, nodeID: nodeID),
+                                  let current = document.flowDocument?.nodeGraph,
+                                  current.connections == graph.connections,
+                                  current.nodes == graph.nodes,
+                                  let index = current.nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+                            var nodes = current.nodes
+                            nodes[index].rollBaseline = baseline
+                            var updated = document
+                            try? updated.updateNodeGraph(nodes: nodes, connections: current.connections)
+                            document = updated
+                        }
+                    },
                     onInputNodeDeleted: {
                         // Clear all cached images and folder scans when input node is deleted
                         rawrKit.clearSourceImageCache()

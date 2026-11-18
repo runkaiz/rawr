@@ -9,7 +9,7 @@ struct NegativeDevelopParameters {
         "autoBase": 0, "autoEndpoints": 0, "autoBalance": 0,
         "balanceR": 0, "balanceG": 0, "balanceB": 0,
         "slopeR": 1, "slopeG": 1, "slopeB": 1,
-        "exposure": 0, "contrast": 1, "toe": 0, "shoulder": 0
+        "rollDensityShift": 0, "exposure": 0, "contrast": 1, "toe": 0, "shoulder": 0
     ]
 
     // Six packed float4s, shared with the Metal constant buffer.
@@ -30,9 +30,9 @@ struct NegativeDevelopParameters {
               zip(["lowR", "lowG", "lowB"], ["highR", "highG", "highB"]).allSatisfy({
                   p[$0.0]! >= -6 && p[$0.1]! <= 6 && p[$0.1]! - p[$0.0]! >= 0.01
               }),
-              (-8...8).contains(p["exposure"]!), (0.1...4).contains(p["contrast"]!),
+              (-6...6).contains(p["rollDensityShift"]!), (-8...8).contains(p["exposure"]!), (0.1...4).contains(p["contrast"]!),
               (0...0.5).contains(p["toe"]!), (0...0.5).contains(p["shoulder"]!) else { return nil }
-        balance = SIMD4(Float(p["balanceR"]!), Float(p["balanceG"]!), Float(p["balanceB"]!), 0)
+        balance = SIMD4(Float(p["balanceR"]!), Float(p["balanceG"]!), Float(p["balanceB"]!), Float(p["rollDensityShift"]!))
         slope = SIMD4(Float(p["slopeR"]!), Float(p["slopeG"]!), Float(p["slopeB"]!), 0)
         base = SIMD4(Float(p["baseR"]!), Float(p["baseG"]!), Float(p["baseB"]!), 0)
         low = SIMD4(Float(p["lowR"]!), Float(p["lowG"]!), Float(p["lowB"]!), 0)
