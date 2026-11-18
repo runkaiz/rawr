@@ -16,7 +16,7 @@ struct PipelineBenchmark {
         let metalBytes: Int
     }
     struct Report: Codable {
-        let schema = 1
+        var schema = 1
         let device: String
         let os: String
         let width: Int
@@ -114,7 +114,7 @@ struct PipelineBenchmark {
 
     static func writeFixture(_ url: URL, width: Int, height: Int, infrared: Bool, context: ProcessingContext) throws {
         let image = CIFilter(name: "CILinearGradient", parameters: [
-            "inputPoint0": CIVector(x: 0, y: 0), "inputPoint1": CIVector(x: width, y: height),
+            "inputPoint0": CIVector(x: 0, y: 0), "inputPoint1": CIVector(x: CGFloat(width), y: CGFloat(height)),
             "inputColor0": CIColor(red: infrared ? 0.35 : 0.025, green: 0.015, blue: 0.01),
             "inputColor1": CIColor(red: 0.9, green: infrared ? 0.9 : 0.55, blue: infrared ? 0.9 : 0.3)
         ])!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: width, height: height))
