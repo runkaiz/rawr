@@ -66,6 +66,20 @@ struct PerformanceTests {
         #expect(pool.bufferAllocations == 2)
     }
 
+    @Test func `Idle pool evicts scratch so large preview outputs can be reused`() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let pool = MetalResources(device: device, idleByteLimit: 1024 * 1024)
+        var scratch: BufferLease? = try #require(pool.buffer(length: 768 * 1024))
+        var output: BufferLease? = try #require(pool.buffer(length: 512 * 1024))
+        let identity = ObjectIdentifier(try #require(output).buffer)
+        scratch = nil
+        output = nil
+        let recycled = try #require(pool.buffer(length: 512 * 1024))
+        #expect(ObjectIdentifier(recycled.buffer) == identity)
+        #expect(pool.bufferAllocations == 2)
+        withExtendedLifetime(scratch) {}
+    }
+
     @Test func `Dust cache reuses unchanged cleanup and invalidates repair and input changes`() async throws {
         let context = try context()
         let processor = DustRemovalProcessor(context: context)
@@ -132,6 +146,38 @@ struct PerformanceTests {
         let replaced = try #require(await kit.loadLegacySource(at: url))
         #expect(replaced.texture.width == 80)
         #expect(replaced.contentID != first.contentID)
+    }
+
+    @MainActor
+    @Test func `Streamed legacy TIFF export preserves values above display white`() async throws {
+        let context = try context()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("linear.tiff")
+        let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
+        let image = CIImage(color: CIColor(red: 0.75, green: 0.5, blue: 0.25, colorSpace: colorSpace))
+            .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        try context.linearCIContext.writeTIFFRepresentation(of: image, to: url, format: .RGBAh, colorSpace: colorSpace)
+        var source = NodeData(type: .imageInput, position: .zero)
+        source.imageURL = url
+        var exposure = NodeData(type: .exposure, position: .zero)
+        exposure.parameters["stops"] = 1
+        let preview = NodeData(type: .preview, position: .zero)
+        let graph = NodeGraph(nodes: [source, exposure, preview], connections: [
+            Connection(fromNodeId: source.id, fromOutput: "Image", toNodeId: exposure.id, toInput: "Input"),
+            Connection(fromNodeId: exposure.id, fromOutput: "Output", toNodeId: preview.id, toInput: "Input")
+        ])
+        let exported = root.appendingPathComponent("positive.tiff")
+        let kit = RawrKit()
+        try #require(await kit.exportImage(graph, to: exported))
+        let result = try ImageDecoder(context: context.linearCIContext).decode(url: exported)
+        var pixel = SIMD4<Float>.zero
+        context.linearCIContext.render(CIImage(cgImage: result), toBitmap: &pixel, rowBytes: 16,
+            bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: colorSpace)
+        #expect(abs(pixel.x - 1.5) < 0.003)
+        #expect(abs(pixel.y - 1) < 0.003)
+        #expect(abs(pixel.z - 0.5) < 0.003)
     }
 
     @Test func `Replacing an infrared file invalidates cached dust output`() async throws {

@@ -452,6 +452,7 @@ public class RawrKit: ObservableObject {
     /// Clear the source image cache (call when image URL changes)
     public func clearSourceImageCache() {
         negativeSourceCache = nil
+        negativeSourceTexture = nil
         legacyTextureCache = nil
         beforePreviewKey = nil
         negativeStatistics = [:]
