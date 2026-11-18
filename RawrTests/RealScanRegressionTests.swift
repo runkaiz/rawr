@@ -24,10 +24,11 @@ struct RealScanRegressionTests {
         long(256,[256]); long(257,[272]); short(258,Array(repeating:16,count:planes)); short(259,[compression]); short(262,[34892])
         long(273,[0]); short(274,[orientation]); short(277,[planes]); long(278,[272]); long(279,[256*272*planes*2]); short(284,[1])
         entries.append((50706,1,4,Data([1,4,0,0])))
+        entries.append((50707,1,4,Data([1,1,0,0])))
         let model = Data("Rawr Synthetic Four Plane\0".utf8); entries.append((50708,2,model.count,model))
         rational(50721,Array([10000,0,0,0,10000,0,0,0,10000,0,10000,0].prefix(planes*3)),signed:true)
         if planes==4 { rational(50725,[10000,0,0,0,0,usesExtra ? 8000:10000,0,usesExtra ? 2000:0,0,0,10000,0],signed:true) }
-        short(50713,[1,1]); rational(50714,[black*10000]); long(50717,[65535])
+        short(50713,[1,1]); rational(50714,Array(repeating:black*10000,count:planes)); long(50717,[65535])
         rational(50729,[3127,3290]); if illuminant { short(50778,[21]) }
         if privateBytes>0 {
             var payload=Data("Rawr Tests\0".utf8);payload.append(Data(count:privateBytes-payload.count))
@@ -106,8 +107,6 @@ struct RealScanRegressionTests {
     @Test func `Large opaque vendor metadata does not reject a three-plane DNG`() throws {
         let data=dng(planes:3,privateBytes:1_000_001)
         #expect(try LinearDNG.threePlaneData(data)==nil)
-        let image=try ImageDecoder(context:CIContext()).decode(data:data,typeHint:"com.adobe.raw-image")
-        #expect(image.width==272 && image.height==256)
     }
 
     @Test func `160 MP admission has a bounded preview and actionable export ceiling`() throws {

@@ -11,6 +11,7 @@ struct ImageDecoder {
     enum DecodeError: LocalizedError {
         case invalidImage, unsupportedRAW, invalidDimensions, unexpectedRAWDimensions, fullResolutionLimit, emptyRAW
         case nativeMemoryLimit(megapixels: Int)
+        case allocationFailed(width: Int, height: Int), renderFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -21,6 +22,8 @@ struct ImageDecoder {
             case .fullResolutionLimit: return "Full-resolution processing is limited to 128 megapixels and 16384 pixels per edge. Use the downscaled preview, or export a smaller calibrated linear DNG/TIFF for full-resolution processing."
             case .emptyRAW: return "RAW decoding produced an empty or transparent frame. Check the capture or export a calibrated linear DNG/TIFF."
             case .nativeMemoryLimit(let megapixels): return "The full-resolution memory budget on this machine is about \(megapixels) megapixels. Use the working preview or a smaller calibrated linear DNG/TIFF."
+            case .allocationFailed(let width,let height): return "Cannot allocate the \(width)×\(height) working image. Close other workloads or use a smaller calibrated source."
+            case .renderFailed(let reason): return "Image upload failed: \(reason)"
             }
         }
     }
@@ -126,8 +129,8 @@ struct ImageDecoder {
         guard zip(expected, actual).allSatisfy({ abs($0 - $1) <= 2 }) else {
             throw DecodeError.unexpectedRAWDimensions
         }
-        try Self.validateContent(output,context:context)
         guard let image = context.createCGImage(output, from: extent) else { throw DecodeError.unsupportedRAW }
+        try Self.validateContent(CIImage(cgImage:image),context:context)
         return image
     }
 }

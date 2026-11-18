@@ -39,7 +39,10 @@ kernel void negativeMeterBaseCandidates(texture2d<float,access::read> image [[te
     for(uint b=0;b<16;++b) blockVariance+=(blocks[b]-mean)*(blocks[b]-mean)/16.0f;
     // Grain is sample noise, not spatial shading. Estimate the variance of
     // block means after subtracting their expected within-block noise.
-    float3 cv=sqrt(max(float3(0),blockVariance-rawVariance/12.0f))/max(mean,1e-6f);
+    // Sixteen block variances have sampling uncertainty. A two-sigma noise
+    // allowance prevents ordinary grain fluctuations from becoming shading.
+    float3 noiseBound=rawVariance/12.0f*(1.0f+2.0f*sqrt(2.0f/15.0f));
+    float3 cv=sqrt(max(float3(0),blockVariance-noiseBound))/max(mean,1e-6f);
     float3 meanError=sqrt(rawVariance/192.0f)/max(mean,1e-6f);
     float flat=max(max(cv.x,cv.y),cv.z);
     float3 trend=abs(normal[0]-normal[2])/max(mean,1e-6f);

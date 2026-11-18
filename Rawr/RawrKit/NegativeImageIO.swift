@@ -20,10 +20,13 @@ enum NegativeImageIO {
         if let scanner = try InfraredImageIO.scannerTIFF(url: url, context: context) { return scanner }
         let image: CIImage
         var downscaled = false
+        var rawInput = false
         if ImageDecoder.rawExtensions.contains(url.pathExtension.lowercased()) {
+            rawInput = true
             guard let raw = try LinearDNG.filter(url: url) ?? CIRAWFilter(imageURL: url), !raw.decoderVersion.rawValue.isEmpty,
                   raw.decoderVersion.rawValue != "None" else { throw ImageDecoder.DecodeError.unsupportedRAW }
-            let scale = try ImageDecoder.workingScale(width:raw.nativeSize.width,height:raw.nativeSize.height,
+            let native = raw.nativeSize
+            let scale = try ImageDecoder.workingScale(width:native.width,height:native.height,
                 allowDownscale:allowDownscale,nativePixelLimit:nativePixelLimit())
             raw.scaleFactor = scale
             if scale < 1 {
@@ -42,13 +45,12 @@ enum NegativeImageIO {
             raw.sharpnessAmount = 0
             raw.linearSpaceFilter = nil
             guard let output = raw.outputImage else { throw ImageDecoder.DecodeError.unsupportedRAW }
-            let expected = [raw.nativeSize.width*Double(scale), raw.nativeSize.height*Double(scale)].sorted()
+            let expected = [native.width*Double(scale), native.height*Double(scale)].sorted()
             let actual = [output.extent.width, output.extent.height].sorted()
             guard zip(expected, actual).allSatisfy({ abs($0 - $1) <= 2 }) else {
                 throw ImageDecoder.DecodeError.unexpectedRAWDimensions
             }
-            try ImageDecoder.validateContent(output,context:context.linearCIContext)
-            context.log("Negative RAW: \(raw.decoderVersion.rawValue), linear sRGB; camera neutral retained, native \(raw.nativeSize)")
+            context.log("Negative RAW: \(raw.decoderVersion.rawValue), linear sRGB; camera neutral retained, native \(native)")
             image = output
         } else {
             // ImageIO honors embedded ICC/TRC. Untagged files use ImageIO's
@@ -72,14 +74,24 @@ enum NegativeImageIO {
             width: Int(bounds.width), height: Int(bounds.height), mipmapped: false)
         descriptor.storageMode = .private
         descriptor.usage = [.shaderRead, .shaderWrite]
-        guard let lease = context.resources.texture(format: .rgba32Float, width: descriptor.width, height: descriptor.height),
-              let command = context.commandQueue.makeCommandBuffer() else { throw ImageDecoder.DecodeError.invalidImage }
+        guard let lease = context.resources.texture(format: .rgba32Float, width: descriptor.width, height: descriptor.height) else {
+            throw ImageDecoder.DecodeError.allocationFailed(width:descriptor.width,height:descriptor.height)
+        }
+        guard let command = context.commandQueue.makeCommandBuffer() else { throw ImageDecoder.DecodeError.renderFailed("No Metal command buffer available.") }
         let texture = lease.texture
         context.linearCIContext.render(normalized, to: texture, commandBuffer: command, bounds: bounds, colorSpace: colorSpace)
         command.commit()
         awaitCompletion(command)
         context.trace.record("decode-upload", since: stageStart, device: context.device, command: command)
-        guard command.status == .completed else { throw ImageDecoder.DecodeError.invalidImage }
+        guard command.status == .completed else {
+            throw ImageDecoder.DecodeError.renderFailed(command.error?.localizedDescription ?? "Metal command status \(command.status.rawValue).")
+        }
+        // Validate the uploaded result, avoiding a second RAW decode and its
+        // native-size temporary storage solely for the content admission check.
+        if rawInput {
+            guard let uploaded = CIImage(mtlTexture:texture,options:[.colorSpace:colorSpace]) else { throw ImageDecoder.DecodeError.invalidImage }
+            try ImageDecoder.validateContent(uploaded,context:context.linearCIContext)
+        }
         var metadata = ImageMetadata(width: texture.width, height: texture.height, colorSpace: colorSpace)
         metadata.domain = .linearTransmittance
         metadata.sourceURL = url
