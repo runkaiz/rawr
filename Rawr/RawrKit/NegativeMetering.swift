@@ -39,7 +39,8 @@ struct NegativeMeteringResult: Equatable, Sendable {
 }
 
 struct NegativeMeteringOutput {
-    let buffer: MTLBuffer
+    let lease: BufferLease
+    var buffer: MTLBuffer { lease.buffer }
     let result: NegativeMeteringResult
     let gpuSeconds: Double
 }
@@ -66,30 +67,34 @@ actor NegativeMetering {
         self.context = context
         var pipelines: [String: MTLComputePipelineState] = [:]
         for name in ["Sample", "Histogram", "Merge", "Select", "Moments", "Fit"] {
-            if let function = context.shaderLibrary?.makeFunction(name: "negativeMeter" + name) {
-                pipelines[name] = try? context.device.makeComputePipelineState(function: function)
-            }
+            pipelines[name] = context.resources.pipeline("negativeMeter" + name)
         }
         self.pipelines = pipelines
     }
 
     func analyze(_ input: ImageData, parameters: [String: Double]) async -> NegativeMeteringOutput? {
+        let stageStart = ProcessInfo.processInfo.systemUptime
         guard let manual = NegativeDevelopParameters(parameters), pipelines.count == 6 else { return nil }
         let detectedBase = parameters["autoBase"] == 1 ? input.metadata.cropFilmBase : nil
         let effectiveBase = detectedBase ?? manual.base
         let autoBase = parameters["autoBase"] == 1 && detectedBase == nil
         let key = Key(source: input.contentID, base: autoBase ? .zero : effectiveBase)
-        if let cached = cache[key] { return cached }
+        if let cached = cache[key] {
+            context.trace.record("meter-cache", since: stageStart, device: context.device, cached: true)
+            return cached
+        }
         let width = min(512, input.texture.width), height = min(512, input.texture.height)
         let count = width * height, groups = (count + 1023) / 1024
         var cfg = Config(grid: SIMD4(UInt32(width), UInt32(height), UInt32(count), autoBase ? 1 : 0), base: effectiveBase)
-        let device = context.device
-        guard let samples = device.makeBuffer(length: count * 16, options: .storageModePrivate),
-              let partial = device.makeBuffer(length: groups * 3 * 4096 * 4, options: .storageModePrivate),
-              let histogram = device.makeBuffer(length: 3 * 4096 * 4, options: .storageModePrivate),
-              let moments = device.makeBuffer(length: groups * 3 * 16, options: .storageModePrivate),
-              let summary = device.makeBuffer(length: MemoryLayout<NegativeMeteringResult>.stride, options: .storageModeShared),
+        guard let samplesLease = context.resources.buffer(length: count * 16),
+              let partialLease = context.resources.buffer(length: groups * 3 * 4096 * 4),
+              let histogramLease = context.resources.buffer(length: 3 * 4096 * 4),
+              let momentsLease = context.resources.buffer(length: groups * 3 * 16),
+              let summaryLease = context.resources.buffer(length: MemoryLayout<NegativeMeteringResult>.stride, options: .storageModeShared),
               let command = context.commandQueue.makeCommandBuffer() else { return nil }
+        let samples = samplesLease.buffer, partial = partialLease.buffer
+        let histogram = histogramLease.buffer, moments = momentsLease.buffer, summary = summaryLease.buffer
+        defer { withExtendedLifetime([samplesLease, partialLease, histogramLease, momentsLease]) {} }
         var initial = NegativeMeteringResult()
         withUnsafeBytes(of: &initial) { summary.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
         command.label = "Negative metering: grid, histograms, CDF, neutral axis"
@@ -140,6 +145,7 @@ actor NegativeMetering {
         }) else { return nil }
         command.commit()
         await command.completed()
+        context.trace.record("metering", since: stageStart, device: context.device, command: command)
         guard command.status == .completed else {
             context.log("Negative metering GPU failed: \(command.error?.localizedDescription ?? "unknown")", level: .error)
             return nil
@@ -149,7 +155,7 @@ actor NegativeMetering {
             result.base = detectedBase
             withUnsafeBytes(of: &result) { summary.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
         }
-        let output = NegativeMeteringOutput(buffer: summary, result: result, gpuSeconds: command.gpuEndTime - command.gpuStartTime)
+        let output = NegativeMeteringOutput(lease: summaryLease, result: result, gpuSeconds: command.gpuEndTime - command.gpuStartTime)
         computationCount += 1
         if cache[key] == nil { order.append(key) }
         cache[key] = output

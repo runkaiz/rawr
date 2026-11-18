@@ -1,0 +1,44 @@
+import Foundation
+import Metal
+import ImageIO
+
+enum BatchMemoryPolicy {
+    /// Reserve at least half of the recommended GPU working set for the editor,
+    /// decode/CI caches and other applications; never start more than two frames.
+    static func workers(pixels: UInt64, recommendedBytes: UInt64, physicalBytes: UInt64) -> Int {
+        let budget = min(recommendedBytes / 2, physicalBytes / 3)
+        // Conservative RGB32 input/output + IR, dust intermediates, rendering,
+        // decoder storage, and metering. At least 256 MiB of fixed overhead.
+        let frame = pixels * 96 + 256 * 1024 * 1024
+        return max(1, min(2, Int(budget / max(1, frame))))
+    }
+
+    static func workerCount(urls: [URL], graph: NodeGraph, device: MTLDevice) -> Int {
+        // An additional fixed source can have unrelated dimensions. Keep the
+        // conservative single-frame path rather than underestimate its memory.
+        guard graph.nodes.filter({ $0.type == .imageInput || $0.type == .folderInput }).count == 1 else { return 1 }
+        var maximum: UInt64 = 0
+        for url in urls {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let w = props[kCGImagePropertyPixelWidth] as? NSNumber,
+                  let h = props[kCGImagePropertyPixelHeight] as? NSNumber else { return 1 }
+            // RAW containers can report embedded preview sizes; fail conservative.
+            if ImageDecoder.rawExtensions.contains(url.pathExtension.lowercased()) { return 1 }
+            guard w.uint64Value > 0, h.uint64Value > 0,
+                  w.uint64Value <= 16384, h.uint64Value <= 16384 else { return 1 }
+            maximum = max(maximum, w.uint64Value * h.uint64Value)
+        }
+        let adjusted = peakPixels(maximum, graph: graph)
+        return min(max(1, urls.count), workers(pixels: max(maximum, adjusted), recommendedBytes: device.recommendedMaxWorkingSetSize,
+            physicalBytes: ProcessInfo.processInfo.physicalMemory))
+    }
+
+    static func peakPixels(_ pixels: UInt64, graph: NodeGraph) -> UInt64 {
+        // Linear chains release each ancestor at its last consumer. Fanout can
+        // retain an additional frame while another branch executes.
+        let consumers = Dictionary(grouping: graph.connections, by: \.fromNodeId)
+        let branches = consumers.values.reduce(0) { $0 + max(0, $1.count - 1) }
+        return pixels * UInt64(1 + branches)
+    }
+}

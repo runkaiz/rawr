@@ -39,28 +39,8 @@ public class ImageInputProcessor: MetalNodeProcessor {
             return ["Image": image]
         }
 
-        // Use RawrKit's cached source image loading which handles preview scaling
-        guard let cgImage = await context.logger?.getCachedSourceImage(for: url) else {
-            context.log("Failed to load image from URL", level: .error)
-            return nil
-        }
-
-        // Convert to Metal texture
-        guard let texture = createTexture(from: cgImage, device: context.device) else {
-            context.log("Failed to create Metal texture from image", level: .error)
-            return nil
-        }
-
-        let metadata = ImageMetadata(
-            width: cgImage.width,
-            height: cgImage.height,
-            colorSpace: cgImage.colorSpace
-        )
-
-        let imageData = ImageData(texture: texture, cgImage: cgImage, metadata: metadata)
-        context.log("Image loaded successfully: \(cgImage.width)x\(cgImage.height)")
-
-        return ["Image": imageData]
+        guard let image = await context.logger?.loadLegacySource(at: url) else { return nil }
+        return ["Image": image]
     }
 
     private func resolveBookmark(_ bookmarkData: Data, context: ProcessingContext) -> URL? {

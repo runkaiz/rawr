@@ -1,0 +1,165 @@
+# GPU execution and benchmarks
+
+Rawr's graph keeps effect results in Metal textures. Legacy effects no longer
+read each texture back through a Swift array and CGContext. Preview creates a
+display-sized image at the terminal boundary. TIFF export hands a deferred
+Core Image provider to ImageIO for explicit uncompressed encoding; PNG/JPEG use
+Core Image file writers. The Before image is reused until its source
+or preview size changes. Negative Develop still evaluates the full-resolution
+source before preview resampling, so local dust supports and global metering do
+not change with the preview size. Slider requests coalesce pending graph edits;
+only the latest pending edit renders. Explicit graph execution and export retain
+their FIFO result semantics, and superseded UI requests are not reported as errors.
+Canvas moves update document layout without submitting another GPU frame.
+
+## Resource ownership and memory
+
+`MetalResources` caches compute pipeline states by function name. Batch workers
+share this cache and a pool of completed private textures and scratch buffers.
+The pool's idle storage is capped at the smaller of 512 MiB and one quarter of
+the device's recommended working set. Live resources are additional to that cap.
+Returning a resource can evict older idle storage so small scratch allocations
+cannot prevent a large output from being reused on the next slider edit.
+
+Each `ImageData` retains its output's lease. A caller extracting a texture must
+retain that `ImageData` until every GPU/CI use has completed. Encoders retain
+Metal resources, but that alone does not stop the pool from reusing a resource;
+the lease owns that protection. Scratch leases live through command completion.
+Export explicitly retains its input through the asynchronous file write.
+
+IR correction and closing reuse three float32 strips with 512 core rows and
+halos covering the closing radius. Only the full scalar mask and final images
+span the frame. At 6000x4000, these three scratch textures need at most about
+40 MB instead of 288 MB. Repair runs after the complete mask is ready, preserving
+donors across tile boundaries. The color mask is allocated only when connected
+or displayed; ordinary RGB processing avoids another 192 MB at 24 MP. Swift
+Testing compares both 17-row and 512-row execution bit for bit with a whole-frame
+reference, including ghost correction, manual repairs, seams and image edges.
+
+The executor releases an ancestor after its final reachable consumer completes,
+and serializes requests even when callers invoke its actor concurrently. Source
+uploads are reused by URL, modification time, size, inode and resolution mode.
+Single-image export retains native-resolution film sources and cleanup from the
+preview, revalidating their identities instead of decoding the same scan again.
+Legacy scaled inputs still reload at full resolution; roll export releases the
+editor caches before starting its separate workers.
+Dust results are reused by source content identity, controls, repair spots and
+the external IR file identity. Canvas placement has no effect on that cache.
+Cleanup and crop each retain one result, capped at 768 MiB or half the
+recommended working set, whichever is smaller. New results are not retained
+during full-resolution export; an existing matching native preview can be reused.
+Crop keeps RGB and registered IR under the same lease ownership, preserving its
+content identity across downstream slider edits.
+
+Roll export streams at most two frames concurrently. Each worker has its own
+decoder, CI contexts, command queue, source cache and executor. The memory policy
+budgets 96 bytes per pixel plus 256 MiB per frame, increases the estimate for
+graph branches, and limits the budget to half the recommended GPU working set or
+one third of physical RAM. RAW files and unknown dimensions use one worker.
+Only compact summaries accumulate during roll calibration. Logs retain 500 rows.
+
+Deferred TIFF encoding, Core Image file writing and disabled intermediate
+caching avoid eagerly materializing a full-frame CPU image at export. This delegates boundary rendering to Core Image;
+the compute graph still requires full-size source/result textures. It is not an
+out-of-core decoder or a guarantee that a 128 MP graph fits a 4 GiB machine.
+
+## Accuracy
+
+The shader formulas and precision are unchanged. Transmittance, IR correction,
+density, metering and development remain float32. The existing dust mask uses
+half storage in [0,1]; binary16 rounding there is at most 1/4096 absolute, and
+this change introduces no new half-precision conversion. Legacy effects retain
+their existing half arithmetic. Negative Develop's shader/reference tolerance
+remains 1e-5 absolute, and preview versus resampled export remains 4/65535.
+Negative TIFF/PNG use unsigned 16-bit linear RGB at the final boundary; legacy
+half-float TIFF retains values above display white. JPEG remains lossy.
+
+All implementations are native Swift/Metal/Core Image. No NegPy source or runtime
+is incorporated.
+
+## Reproduction
+
+Build the headless harness on a Mac build worker with the Xcode Metal component:
+
+```sh
+bash scripts/build-benchmark.sh /absolute/task/path/RawrBenchmark.bundle
+/absolute/task/path/RawrBenchmark.bundle/Contents/MacOS/rawr-benchmark \
+    --width 6000 --height 4000 --frames 36 --iterations 5 \
+    --output /absolute/task/path/results.json
+```
+
+The binary is invoked directly and has no application/window entry point. A
+VM-built bundle can be copied to the matching macOS host for GPU measurement;
+no host build is needed. The Firstmate runner additionally holds the shared VM
+lock, uses ad hoc signing with no team, and guards host compute with HID idle
+time >=10 minutes throughout the run. No UI test target is needed.
+
+The fixtures are generated linear gradients inside a flat clear-film border,
+with a separate registered IR frame; 36 distinct paths link to the same visible fixture bytes. They exercise
+decode, dust/IR, metering, development, preview, TIFF export, batch scheduling and
+roll calibration, but do not model varied photographic content or disk-cold
+private scans. Fixture generation is excluded from reported scenario time.
+
+JSON contains total wall time for cold preview, each exposure-slider edit,
+single TIFF export, 36-frame TIFF export and roll calibration. Events report
+stage wall time, available completed-command GPU timestamps, and Metal allocated
+bytes. Cache hits are named explicitly and report zero GPU work. Core Image's implicit preview/file-write
+GPU work has no command timestamp and is included in boundary wall time; an
+absent GPU value means unavailable, not zero. Metering wall time is nested in
+development wall time, so stage wall times must not be summed. Scenario RSS is
+the process lifetime high-water mark from `getrusage`, not incremental memory.
+Metal allocation samples include live and idle pooled storage, but can miss a
+short-lived intermediate peak. Repeat runs for statistically robust comparisons.
+
+## Measurements (18 November 2026)
+
+Measured on an Apple M2 Pro with 16 GiB RAM, and a 4 GiB/four-CPU macOS build VM
+with the Apple Paravirtual device. Both report macOS 27.2 (26B123), Xcode 27.2.
+Baseline backend: `68ba23c`; optimized backend including current `dev` Auto Crop:
+`fa914c7`. Identical harness and build-script
+SHA-256 values are recorded in the task's source manifests. Baseline-only additions
+are timing markers; no baseline math, IO, allocation or caching policy changed.
+
+| Scenario | M2 Pro before | M2 Pro after | VM before | VM after |
+|---|---:|---:|---:|---:|
+| Cold source preview | 0.376 s | 0.378 s | 2.455 s | 1.195 s |
+| Single TIFF export after editing | 0.480 s | 0.143 s | 2.471 s | 0.357 s |
+| 36-frame TIFF export | 18.024 s | 7.812 s | 86.704 s | 55.998 s |
+| 36-frame calibration | 6.053 s | 5.707 s | 11.055 s | 5.917 s |
+| Slider median (5 edits) | 212.4 ms | 16.1 ms | 613.1 ms | 23.6 ms |
+| Slider slowest | 218.2 ms | 16.6 ms | 1049.8 ms | 44.4 ms |
+
+The M2 Pro slider median improved 13.2×,
+single export 3.4×,
+and roll export 2.3×.
+Cold source preview is effectively unchanged on hardware. The roll used two
+workers on the host and one in the VM.
+
+| Sample | M2 Pro before | M2 Pro after | VM before | VM after |
+|---|---:|---:|---:|---:|
+| Single export process peak RSS | 2774 MiB | 1314 MiB | 1192 MiB | 948 MiB |
+| Roll export process peak RSS | 3706 MiB | 2841 MiB | 1314 MiB | 1316 MiB |
+| Metal allocated after roll export | 3332 MiB | 954 MiB | 2035 MiB | 831 MiB |
+
+RSS is a process-lifetime high-water mark at each scenario, including fixture
+setup and preceding scenarios. Metal samples are allocated bytes at that point,
+not peak residency. The VM's final calibration high-water RSS was
+1431 MiB versus
+1314 MiB before;
+memory is not uniformly lower for every scenario.
+
+Workload: 6000×4000 source → Dust/IR → Negative Develop → Preview, maximum display
+edge 1920. Full-size processing precedes display resampling. Five sequential
+exposure edits use warm source/cleanup caches. Single export follows those edits
+and retains full-resolution inputs. Roll export writes 36 full-resolution TIFFs;
+calibration measures original sources. Auto Crop is validated separately by its
+affine oracle, paired IR ownership and crop-cache integration tests. Generated
+gradients/clear borders and repeated fixture bytes are not a real-scan corpus.
+One full pass per environment; these numbers are not confidence intervals.
+
+All 70 unit tests passed across eight suites on the VM; 1 optional external
+Nikon fixture test was skipped. No UI test target or app window was launched.
+Maximum Float64 development-reference error was 2.574e-7 (limit 1e-5),
+preview/export error 1.526e-5 (limit 4/65535), and crop affine error 6.661e-6
+(limit 1e-4). IR tile output and masks matched the whole-frame reference bit for
+bit at seams and image edges. Existing tolerances were not loosened.

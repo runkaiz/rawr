@@ -5,6 +5,9 @@ import Metal
 public actor GraphExecutor {
     private let context: ProcessingContext
     private var processors: [NodeType: NodeProcessor] = [:]
+    private var executing = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var remainingConsumers: [UUID: Int] = [:]
     private var executionCache: [UUID: [String: ImageData]] = [:]
 
     public init(context: ProcessingContext) {
@@ -46,10 +49,27 @@ public actor GraphExecutor {
     ///   - nodeGraph: The graph to execute
     /// - Returns: Dictionary of Preview node outputs (node ID -> output images)
     public func execute(nodeGraph: NodeGraph) async -> [UUID: [String: ImageData]] {
+        await acquire()
+        defer { release() }
         executionCache.removeAll()
+        defer { executionCache.removeAll() }
         if let error = nodeGraph.validationError() {
             context.log(error, level: .error)
             return [:]
+        }
+        var reachable: Set<UUID> = []
+        func visit(_ id: UUID) {
+            guard reachable.insert(id).inserted else { return }
+            for edge in nodeGraph.connections where edge.toNodeId == id { visit(edge.fromNodeId) }
+        }
+        for node in nodeGraph.nodes where node.type == .preview { visit(node.id) }
+        context.requestedMasks = Set(nodeGraph.connections.filter {
+            $0.fromOutput == "Mask" && reachable.contains($0.toNodeId)
+        }.map(\.fromNodeId))
+        defer { context.requestedMasks = nil }
+        remainingConsumers = [:]
+        for edge in nodeGraph.connections where reachable.contains(edge.toNodeId) {
+            remainingConsumers[edge.fromNodeId, default: 0] += 1
         }
         // Both cleanup and development operate on full-size linear float sources.
         context.negativeInputIDs = []
@@ -135,6 +155,14 @@ public actor GraphExecutor {
             }
         }
 
+        defer {
+            // Once all reachable consumers have encoded/completed, release the
+            // ancestor. Branches keep their input until the final consumer.
+            for edge in graph.connections where edge.toNodeId == node.id {
+                remainingConsumers[edge.fromNodeId, default: 1] -= 1
+                if remainingConsumers[edge.fromNodeId] == 0 { executionCache.removeValue(forKey: edge.fromNodeId) }
+            }
+        }
         // Validate inputs
         guard processor.canProcess(inputs: inputs, node: node) else {
             context.log("Node cannot be processed with available inputs", level: .error)
@@ -155,8 +183,24 @@ public actor GraphExecutor {
     }
 
     /// Clear the execution cache (useful when graph changes)
-    public func clearCache() {
+    public func clearCache() async {
+        await acquire()
+        defer { release() }
         executionCache.removeAll()
+        for processor in processors.values {
+            (processor as? DustRemovalProcessor)?.clearCache()
+            (processor as? AutoCropProcessor)?.clearCache()
+        }
         context.log("Execution cache cleared")
     }
+    private func acquire() async {
+        if executing { await withCheckedContinuation { waiters.append($0) } }
+        else { executing = true }
+    }
+
+    private func release() {
+        if waiters.isEmpty { executing = false }
+        else { waiters.removeFirst().resume() }
+    }
+
 }

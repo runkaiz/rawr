@@ -4,10 +4,11 @@ import CoreImage
 
 /// Runtime representation of image data flowing through the graph
 public struct ImageData {
+    var textureLeases: [TextureLease] = []
     public let contentID: UUID
     public let texture: MTLTexture
     public let infraredTexture: MTLTexture?
-    public let cgImage: CGImage?
+    public var cgImage: CGImage?
     public let metadata: ImageMetadata
 
     public init(texture: MTLTexture, cgImage: CGImage? = nil, metadata: ImageMetadata = ImageMetadata(), contentID: UUID = UUID(), infraredTexture: MTLTexture? = nil) {
@@ -17,6 +18,12 @@ public struct ImageData {
         self.cgImage = cgImage
         self.metadata = metadata
     }
+    init(lease: TextureLease, metadata: ImageMetadata, infraredLease: TextureLease? = nil) {
+        self.init(texture: lease.texture, metadata: metadata, infraredTexture: infraredLease?.texture)
+        textureLeases = [lease]
+        if let infraredLease { textureLeases.append(infraredLease) }
+    }
+
 }
 
 /// Metadata about an image as it flows through the pipeline
@@ -28,6 +35,8 @@ public struct ImageMetadata {
     public var domain: ImageDomain = .unspecified
     var cropFilmBase: SIMD4<Float>?
     var sourceURL: URL?
+    var legacyFloatOutput = false
+    var dustMaskLease: TextureLease?
     var dustMaskPreview: MTLTexture?
 
     public init(width: Int = 0, height: Int = 0, colorSpace: CGColorSpace? = nil, orientation: UInt32 = 1) {
@@ -68,17 +77,31 @@ public class ProcessingContext {
     public let linearCIContext: CIContext
     public let shaderLibrary: MTLLibrary?
     public weak var logger: RawrKit?
+    let resources: MetalResources
+    let trace: PipelineTrace
     var negativeInputIDs: Set<UUID> = []
+    // nil preserves the standalone processor API (all outputs). Graph requests
+    // populate this set so unused color-mask images need not be allocated.
+    var requestedMasks: Set<UUID>?
 
-    public init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext, logger: RawrKit? = nil) {
+    public convenience init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext, logger: RawrKit? = nil) {
+        self.init(device: device, commandQueue: commandQueue, ciContext: ciContext,
+            logger: logger, resources: MetalResources(device: device), trace: PipelineTrace())
+    }
+
+    init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext,
+         logger: RawrKit?, resources: MetalResources, trace: PipelineTrace) {
         self.device = device
         self.commandQueue = commandQueue
         self.ciContext = ciContext
         self.linearCIContext = CIContext(mtlDevice: device, options: [
+            .cacheIntermediates: false,
             .workingFormat: CIFormat.RGBAf,
             .workingColorSpace: NegativeImageIO.colorSpace
         ])
-        self.shaderLibrary = try? device.makeDefaultLibrary(bundle: Bundle(for: RawrKit.self))
+        self.resources = resources
+        self.trace = trace
+        self.shaderLibrary = resources.library
         self.logger = logger
     }
 
@@ -148,31 +171,14 @@ open class MetalNodeProcessor: NodeProcessor {
         return texture
     }
 
-    /// Create a CGImage from a Metal texture
-    public func createCGImage(from texture: MTLTexture) -> CGImage? {
-        let width = texture.width
-        let height = texture.height
-        let bytesPerRow = width * 8
-
-        var pixelData = [UInt16](repeating: 0, count: width * height * 4)
-
-        let region = MTLRegionMake2D(0, 0, width, height)
-        texture.getBytes(&pixelData, bytesPerRow: bytesPerRow, from: region, mipmapLevel: 0)
-
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB),
-              let context = CGContext(
-                data: &pixelData,
-                width: width,
-                height: height,
-                bitsPerComponent: 16,
-                bytesPerRow: bytesPerRow,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
-              ),
-              let cgImage = context.makeImage() else {
-            return nil
-        }
-
-        return cgImage
+    /// Explicit CPU boundary for callers outside graph execution. Core Image
+    /// supports private textures and both float formats without reinterpreting
+    /// float32 bytes as half floats. Pass a reusable context when calling often.
+    public func createCGImage(from texture: MTLTexture, context: CIContext? = nil) -> CGImage? {
+        let colorSpace = NegativeImageIO.colorSpace
+        guard let image = CIImage(mtlTexture: texture, options: [.colorSpace: colorSpace]) else { return nil }
+        let renderer = context ?? CIContext(mtlDevice: texture.device)
+        return renderer.createCGImage(image, from: image.extent,
+            format: texture.pixelFormat == .rgba32Float ? .RGBAf : .RGBAh, colorSpace: colorSpace, deferred: false)
     }
 }

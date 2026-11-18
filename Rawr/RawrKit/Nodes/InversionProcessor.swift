@@ -9,9 +9,7 @@ public class InversionProcessor: MetalNodeProcessor {
 
     public init(context: ProcessingContext) {
         // Load the Metal shader
-        guard let library = context.shaderLibrary,
-              let kernelFunction = library.makeFunction(name: "invertImage"),
-              let pipeline = try? context.device.makeComputePipelineState(function: kernelFunction) else {
+        guard let pipeline = context.resources.pipeline("invertImage") else {
             fatalError("Failed to create inversion compute pipeline")
         }
 
@@ -20,6 +18,7 @@ public class InversionProcessor: MetalNodeProcessor {
     }
 
     override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
+        let stageStart = ProcessInfo.processInfo.systemUptime
         guard let inputData = inputs["Input"] else {
             context.log("No input image for inversion", level: .error)
             return nil
@@ -29,17 +28,13 @@ public class InversionProcessor: MetalNodeProcessor {
 
         let inputTexture = inputData.texture
 
-        // Create output texture
-        let textureDescriptor = MTLTextureDescriptor()
-        textureDescriptor.pixelFormat = inputTexture.pixelFormat
-        textureDescriptor.width = inputTexture.width
-        textureDescriptor.height = inputTexture.height
-        textureDescriptor.usage = [.shaderRead, .shaderWrite]
-
-        guard let outputTexture = context.device.makeTexture(descriptor: textureDescriptor) else {
+        guard let outputLease = context.resources.texture(format: inputTexture.pixelFormat,
+            width: inputTexture.width, height: inputTexture.height) else {
             context.log("Failed to create output texture", level: .error)
             return nil
         }
+
+        let outputTexture = outputLease.texture
 
         // Execute Metal compute shader
         guard let commandBuffer = context.commandQueue.makeCommandBuffer(),
@@ -63,18 +58,15 @@ public class InversionProcessor: MetalNodeProcessor {
         computeEncoder.endEncoding()
         commandBuffer.commit()
         await commandBuffer.completed()
+        context.trace.record(node.type.rawValue, since: stageStart, device: context.device, command: commandBuffer)
 
-        // Convert output texture to CGImage
-        guard let cgImage = createCGImage(from: outputTexture) else {
-            context.log("Failed to create CGImage from output texture", level: .error)
+        guard commandBuffer.status == .completed else {
+            context.log("Inversion GPU failed", level: .error)
             return nil
         }
-
-        let outputData = ImageData(
-            texture: outputTexture,
-            cgImage: cgImage,
-            metadata: inputData.metadata
-        )
+        var metadata = inputData.metadata
+        metadata.legacyFloatOutput = true
+        let outputData = ImageData(lease: outputLease, metadata: metadata)
 
         context.log("Inversion completed successfully")
         return ["Output": outputData]

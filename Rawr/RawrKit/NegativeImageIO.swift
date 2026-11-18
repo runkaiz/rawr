@@ -9,6 +9,8 @@ enum NegativeImageIO {
     static let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
 
     static func load(url: URL, context: ProcessingContext) throws -> ImageData {
+        let stageStart = ProcessInfo.processInfo.systemUptime
+        defer { context.trace.record("decode", since: stageStart, device: context.device) }
         if let scanner = try InfraredImageIO.scannerTIFF(url: url, context: context) { return scanner }
         let image: CIImage
         if ImageDecoder.rawExtensions.contains(url.pathExtension.lowercased()) {
@@ -57,31 +59,34 @@ enum NegativeImageIO {
             width: Int(bounds.width), height: Int(bounds.height), mipmapped: false)
         descriptor.storageMode = .private
         descriptor.usage = [.shaderRead, .shaderWrite]
-        guard let texture = context.device.makeTexture(descriptor: descriptor),
+        guard let lease = context.resources.texture(format: .rgba32Float, width: descriptor.width, height: descriptor.height),
               let command = context.commandQueue.makeCommandBuffer() else { throw ImageDecoder.DecodeError.invalidImage }
+        let texture = lease.texture
         context.linearCIContext.render(normalized, to: texture, commandBuffer: command, bounds: bounds, colorSpace: colorSpace)
         command.commit()
         awaitCompletion(command)
+        context.trace.record("decode-upload", since: stageStart, device: context.device, command: command)
         guard command.status == .completed else { throw ImageDecoder.DecodeError.invalidImage }
         var metadata = ImageMetadata(width: texture.width, height: texture.height, colorSpace: colorSpace)
         metadata.domain = .linearTransmittance
         metadata.sourceURL = url
-        return ImageData(texture: texture, metadata: metadata)
+        return ImageData(lease: lease, metadata: metadata)
     }
 
     private static func awaitCompletion(_ command: MTLCommandBuffer) {
         command.waitUntilCompleted()
     }
 
-    static func boundaryImage(_ texture: MTLTexture, context: CIContext, maxDimension: CGFloat? = nil) -> CGImage? {
+    static func boundaryImage(_ texture: MTLTexture, context: CIContext, maxDimension: CGFloat? = nil, legacyFloat: Bool = false) -> CGImage? {
         guard var image = CIImage(mtlTexture: texture, options: [.colorSpace: colorSpace]) else { return nil }
         if let limit = maxDimension, limit.isFinite, limit > 0,
            max(image.extent.width, image.extent.height) > limit {
             let scale = limit / max(image.extent.width, image.extent.height)
             image = image.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
         }
-        // Profiled unsigned 16-bit linear TIFF/preview, quantized only here.
-        return context.createCGImage(image, from: image.extent, format: .RGBA16,
-            colorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!)
+        // Negative/mask output uses unsigned 16-bit linear RGB. Legacy effects
+        // retain half-float HDR values at this terminal boundary.
+        return context.createCGImage(image, from: image.extent, format: legacyFloat ? .RGBAh : .RGBA16,
+            colorSpace: legacyFloat ? colorSpace : CGColorSpace(name: CGColorSpace.linearSRGB)!, deferred: false)
     }
 }
