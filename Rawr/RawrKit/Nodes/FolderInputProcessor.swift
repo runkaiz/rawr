@@ -62,6 +62,11 @@ public class FolderInputProcessor: MetalNodeProcessor {
 
         context.log("Loading image \(validIndex + 1) of \(imageURLs.count) from folder")
 
+        if context.negativeInputIDs.contains(node.id) {
+            guard let image = context.logger?.loadNegativeSource(at: selectedImageURL, context: context) else { return nil }
+            return ["Image": image]
+        }
+
         // Load the image directly here while we have folder access, rather than using getCachedSourceImage
         // which would try to access the file independently
         guard let cgImage = context.logger?.decodeSourceImage(at: selectedImageURL) else {

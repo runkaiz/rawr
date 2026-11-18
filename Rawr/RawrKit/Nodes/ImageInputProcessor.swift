@@ -34,6 +34,11 @@ public class ImageInputProcessor: MetalNodeProcessor {
             return nil
         }
 
+        if context.negativeInputIDs.contains(node.id) {
+            guard let image = context.logger?.loadNegativeSource(at: url, context: context) else { return nil }
+            return ["Image": image]
+        }
+
         // Use RawrKit's cached source image loading which handles preview scaling
         guard let cgImage = await context.logger?.getCachedSourceImage(for: url) else {
             context.log("Failed to load image from URL", level: .error)

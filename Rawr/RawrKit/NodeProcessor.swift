@@ -21,6 +21,7 @@ public struct ImageMetadata {
     public var height: Int = 0
     public var colorSpace: CGColorSpace?
     public var orientation: UInt32 = 1
+    public var domain: ImageDomain = .unspecified
 
     public init(width: Int = 0, height: Int = 0, colorSpace: CGColorSpace? = nil, orientation: UInt32 = 1) {
         self.width = width
@@ -28,6 +29,11 @@ public struct ImageMetadata {
         self.colorSpace = colorSpace
         self.orientation = orientation
     }
+}
+
+/// Negative development uses decoded linear sRGB, rather than sensor-native dye space.
+public enum ImageDomain {
+    case unspecified, linearTransmittance, positiveLinear
 }
 
 /// Protocol that all node processors must conform to
@@ -54,6 +60,7 @@ public class ProcessingContext {
     public let ciContext: CIContext
     public let shaderLibrary: MTLLibrary?
     public weak var logger: RawrKit?
+    var negativeInputIDs: Set<UUID> = []
 
     public init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext, logger: RawrKit? = nil) {
         self.device = device

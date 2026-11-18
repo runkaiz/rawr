@@ -32,6 +32,7 @@ public class RawrKit: ObservableObject {
     // Source image cache to avoid reloading
     private var cachedSourceImage: CGImage?
     private var cachedSourceURL: URL?
+    private var negativeSourceTexture: MTLTexture?
 
     public init() {
         self.device = MTLCreateSystemDefaultDevice()
@@ -244,6 +245,7 @@ public class RawrKit: ObservableObject {
                     isProcessing = true
                     performance.startTime = Date()
                     let success = await request.operation()
+                    negativeSourceTexture = nil
                     performance.endTime = Date()
                     isProcessing = false
                     request.completion.resume(returning: success)
@@ -265,7 +267,9 @@ public class RawrKit: ObservableObject {
             log("No preview outputs generated", level: .warning)
             return false
         }
-        if let before = await getSourceImage(from: graph) {
+        if graph.nodes.contains(where: { $0.type == .negativeDevelop }), let texture = negativeSourceTexture {
+            previewImage = NegativeImageIO.boundaryImage(texture, context: ciContext, maxDimension: maxPreviewDimension)
+        } else if let before = await getSourceImage(from: graph) {
             previewImage = createPreview(from: before)
         }
         processedPreviewImage = createPreview(from: after)
@@ -321,6 +325,20 @@ public class RawrKit: ObservableObject {
     public func clearGraphCache() async {
         await graphExecutor?.clearCache()
         log("Graph cache cleared")
+    }
+
+    /// Full-size float decode and GPU upload; no CPU image is made between stages.
+    internal func loadNegativeSource(at url: URL, context: ProcessingContext) -> ImageData? {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let image = try NegativeImageIO.load(url: url, context: context)
+            negativeSourceTexture = image.texture
+            return image
+        } catch {
+            log("Negative input failed: \(error.localizedDescription)", level: .error)
+            return nil
+        }
     }
 
     // MARK: - Source Image Cache Management
