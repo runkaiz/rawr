@@ -376,6 +376,14 @@ struct NodeGraphView: View {
             negativeStatistics: negativeStatistics[node.id],
             rollFrameName: selectedRollFrame(node),
             onCustomAction: { action, value in
+                if let index = nodes.firstIndex(where: { $0.id == node.id }) {
+                    if action == "setHealSpots", let spots = value as? [HealSpot] { nodes[index].healSpots = spots }
+                    if action == "setInfrared" {
+                        let url = value as? URL
+                        nodes[index].infraredURL = url
+                        nodes[index].infraredBookmark = url.flatMap { RawrKit.createSecurityBookmark(for: $0) }
+                    }
+                }
                 if action == "measureRoll" { onMeasureRoll?(node.id) }
                 if action == "setRoll", let index = nodes.firstIndex(where: { $0.id == node.id }) {
                     nodes[index].rollBaseline = value as? RollBaseline

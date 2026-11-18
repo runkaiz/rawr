@@ -9,6 +9,7 @@ enum NegativeImageIO {
     static let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
 
     static func load(url: URL, context: ProcessingContext) throws -> ImageData {
+        if let scanner = try InfraredImageIO.scannerTIFF(url: url, context: context) { return scanner }
         let image: CIImage
         if ImageDecoder.rawExtensions.contains(url.pathExtension.lowercased()) {
             guard let raw = CIRAWFilter(imageURL: url), !raw.decoderVersion.rawValue.isEmpty,
