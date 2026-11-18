@@ -178,6 +178,14 @@ struct DustRemovalTests {
         let maskTexture = try #require(output["Mask"]).texture
         let after = try #require(NegativeImageIO.boundaryImage(resultTexture, context: ctx.linearCIContext))
         let mask = try #require(NegativeImageIO.boundaryImage(maskTexture, context: ctx.linearCIContext))
+        // Legacy finishing nodes carry a cached CGImage. The mask must still
+        // preview when one of those nodes follows cleanup/development.
+        var metadata = image(source).metadata
+        metadata.dustMaskPreview = maskTexture
+        let cached = ImageData(texture: resultTexture, cgImage: after, metadata: metadata)
+        let terminal = try #require(await PreviewProcessor().process(inputs: ["Input": cached],
+            node: NodeData(type: .preview, position: .zero), context: ctx)?["Output"])
+        #expect(terminal.cgImage?.dataProvider?.data == mask.dataProvider?.data)
         let view = HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading) {
                 Label("Dust Removal", systemImage: node.type.icon).font(.headline)

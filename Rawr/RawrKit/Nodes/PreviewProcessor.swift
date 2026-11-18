@@ -19,9 +19,10 @@ public class PreviewProcessor: MetalNodeProcessor {
         context.log("Preview node processed: \(inputData.metadata.width)x\(inputData.metadata.height)")
 
         // A CPU image is created only at this terminal boundary for GPU-only paths.
-        guard inputData.cgImage == nil else { return ["Output": inputData] }
+        let displayMask = context.logger?.isFullResolutionMode == true ? nil : inputData.metadata.dustMaskPreview
+        guard inputData.cgImage == nil || displayMask != nil else { return ["Output": inputData] }
         let limit = context.logger.map { $0.isFullResolutionMode ? nil : $0.maxPreviewDimension } ?? nil
-        let displayTexture = context.logger?.isFullResolutionMode == true ? inputData.texture : (inputData.metadata.dustMaskPreview ?? inputData.texture)
+        let displayTexture = displayMask ?? inputData.texture
         guard let image = NegativeImageIO.boundaryImage(displayTexture, context: context.linearCIContext, maxDimension: limit) else {
             context.log("Failed to render terminal image", level: .error)
             return nil
