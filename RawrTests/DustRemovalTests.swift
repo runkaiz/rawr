@@ -153,6 +153,11 @@ struct DustRemovalTests {
         let b = try texture([SIMD4<Float>(repeating: 1)], width: 1, context: ctx)
         #expect(await DustRemovalProcessor(context: ctx).process(inputs: ["Input": image(a, infrared: b)],
             node: NodeData(type: .dustRemoval, position: .zero), context: ctx) == nil)
+        var disabled = NodeData(type: .dustRemoval, position: .zero)
+        disabled.parameters["useIR"] = 0
+        disabled.infraredURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        #expect(await DustRemovalProcessor(context: ctx).process(inputs: ["Input": image(a, infrared: b)],
+            node: disabled, context: ctx) != nil)
     }
 
     @Test func `Dust controls and repaired preview render without opening a window`() async throws {

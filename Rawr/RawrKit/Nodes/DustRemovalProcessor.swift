@@ -18,13 +18,15 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
     }
 
     override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
+        lastGPUTime = nil
         guard let input = inputs["Input"], input.metadata.domain == .linearTransmittance,
               input.texture.pixelFormat == .rgba32Float else {
             context.log("Dust Removal requires a linear source before Negative Develop", level: .error)
             return nil
         }
-        var infrared = input.infraredTexture
-        if node.infraredURL != nil || node.infraredBookmark != nil {
+        let useInfrared = node.parameters["useIR"] != 0
+        var infrared = useInfrared ? input.infraredTexture : nil
+        if useInfrared && (node.infraredURL != nil || node.infraredBookmark != nil) {
             do {
                 var stale = false
                 let url: URL
