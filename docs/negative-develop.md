@@ -36,12 +36,18 @@ to three dimensions before Apple performs the working-space conversion. Per-plan
 black/white normalization happens first. An explicitly zero reduction weight
 excludes a plane; no plane is display alpha or inferred IR. Orientation, default
 crop, white chromaticity/neutral and single-illuminant calibration are retained.
-Unsupported compression, planar storage, spatial black levels, dual-illuminant
+Unrelated metadata in ordinary three-plane DNGs stays with Apple's decoder.
+Unsupported four-plane compression, planar storage, spatial black levels, dual-illuminant
 or extra calibration stages fail with an export instruction. Transparent-black
 and opaque-black RAW outputs fail content acceptance, even at correct dimensions.
 This adapter follows Adobe's [DNG specification](https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html).
 
 Full-resolution processing has a ceiling of **128 MP and 16384 pixels per edge**.
+Negative RAW import additionally reserves two thirds of physical RAM for the OS,
+decoder and caches, estimating 48 bytes/pixel for active float stages in the
+remaining allowance (about 29.8 MP with 4 GiB RAM). Sources above that allowance
+use the bounded working preview; full-resolution requests explain the machine's
+memory limit. This is a conservative admission estimate, not a peak-RSS claim.
 Larger RAWs (up to 1 GP / 65536 per edge) can be opened as an explicitly logged
 working preview capped at 24 MP and 8192 per edge. Decode scaling happens before
 GPU texture allocation. This preview may differ in fine-grain statistics.
@@ -149,11 +155,14 @@ captures require manual calibration. Dark holders and clipped regions contribute
 no weight. User-defined ROIs/defect strokes and calibrated noise floors are not
 part of this slice.
 
-Base metering searches local narrow strips at 40 offsets in the outer 12%,
+Base metering searches local narrow strips at 80 offsets in the outer 12%,
 with eight independent segments on each of four sides. Candidates must have
-unclipped opaque samples, channel variation below 4%, and transverse mean drift
-below 1.2%. Matching segments must agree within 3.5% and be brighter than the
-interior. Multiple sides provide stronger support than one side. The broad-band
+unclipped opaque samples and spatial variation below 4% in sixteen block means,
+after subtracting their estimated within-block grain noise. Confidence also
+reflects uncertainty in the mean; transverse drift is tested against its noise
+estimate. A nearby edge must change averaged line transmission by at least 12%,
+so a smooth scene gradient does not masquerade as film border. Matching segments
+must agree within 3.5% and be brighter than the interior. Multiple sides provide stronger support than one side. The broad-band
 90th percentile remains a fallback for an entirely flat film border; otherwise
 the 99.5th interior percentile is an explicitly low-confidence estimate.
 Auto Crop carries validated border estimates from the original source into the

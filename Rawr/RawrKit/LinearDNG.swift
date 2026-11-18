@@ -45,6 +45,13 @@ enum LinearDNG {
             return Int(v)
         }
         guard try integer(data, 2, 2) == 42 else { return nil }
+        // Sniff only the standard fields this adapter uses. DNGPrivateData can
+        // legitimately be tens of megabytes in an ordinary three-plane DNG;
+        // leave its interpretation and storage to Apple's original decoder.
+        let wanted: Set<Int> = [254,256,257,258,259,262,273,274,277,278,279,284,330,339,
+            50713,50714,50717,50718,50719,50720,50721,50725,50728,50729,50778]
+        let unsupportedStages: Set<Int> = [338,50712,50715,50716,50722,50723,50724,50727,
+            50740,50964,50965,51008,51009,51022]
         var pending = [try integer(data, 4, 4)], seen = Set<Int>(), directories = [[Int: Tag]]()
         while let offset = pending.popLast(), offset != 0 {
             guard seen.insert(offset).inserted, seen.count <= 64 else { throw LayoutError.corrupt }
@@ -53,7 +60,13 @@ enum LinearDNG {
             var tags = [Int: Tag]()
             for i in 0..<count {
                 let e = offset + 2 + i*12
-                let tag = try integer(data,e,2), type = try integer(data,e+2,2), n = try integer(data,e+4,4)
+                let tag = try integer(data,e,2)
+                if unsupportedStages.contains(tag) {
+                    tags[tag] = Tag(type:0,count:0,bytes:Data())
+                    continue
+                }
+                guard wanted.contains(tag) else { continue }
+                let type = try integer(data,e+2,2), n = try integer(data,e+4,4)
                 let size = [1:1,2:1,3:2,4:4,5:8,6:1,7:1,8:2,9:4,10:8,11:4,12:8,13:4][type]
                 guard let size, n <= 1_000_000 else { throw LayoutError.corrupt }
                 let length = n*size, start = length <= 4 ? e+8 : try integer(data,e+8,4)
@@ -107,6 +120,7 @@ enum LinearDNG {
               sampleFormat.allSatisfy({ $0 == 1 }), raw[338] == nil,
               common[50722] == nil, common[50723] == nil, common[50724] == nil,
               common[50727] == nil, common[50964] == nil, common[50965] == nil,
+              common[50740] == nil,
               common[51008] == nil, common[51009] == nil, common[51022] == nil else { throw LayoutError.unsupported }
         let color = try values(common[50721]), reduction = try values(common[50725])
         guard color.count == 12, reduction.count == 12,

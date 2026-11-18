@@ -19,7 +19,12 @@ struct NegativeMeteringTests {
     @Test func `Thin scanner strips survive black holder and textured broad borders`() async throws {
         let ctx = try context(), w = 512, h = 512
         let base = SIMD3<Double>(0.60,0.20,0.09)
-        var pixels = [SIMD4<Float>](), polluted = [SIMD4<Float>]()
+        var pixels = [SIMD4<Float>](), polluted = [SIMD4<Float>](), noBorder = [SIMD4<Float>]()
+        func grain(_ x:Int,_ y:Int,_ channel:Int) -> Double {
+            var n=UInt32(truncatingIfNeeded:(x+y*w)*374761393+channel*668265263)
+            n=(n ^ (n >> 13)) &* 1274126177; n ^= n >> 16
+            return Double(n & 65535)/32767.5-1
+        }
         for y in 0..<h { for x in 0..<w {
             let u = Double(x)/Double(w), v = Double(y)/Double(h)
             let holder = u<0.006 || v<0.006 || u>0.994 || v>0.994
@@ -27,9 +32,11 @@ struct NegativeMeteringTests {
             let g = 0.15+1.1*u+0.3*v
             let chroma = 0.05*sin(Double(x*7+y*11))
             let density = clear ? SIMD3<Double>(repeating:0) : SIMD3(0.08+1.04*g+chroma,g,-0.03+0.96*g-chroma)
-            let noise = 1+0.008*sin(Double(x*17+y*31))
-            let value = SIMD4<Float>(Float(base.x*pow(10,-density.x)*noise),Float(base.y*pow(10,-density.y)*noise),Float(base.z*pow(10,-density.z)*noise),1)
+            let noise=SIMD3(1+0.10*grain(x,y,0),1+0.16*grain(x,y,1),1+0.24*grain(x,y,2))
+            let value = SIMD4<Float>(Float(base.x*pow(10,-density.x)*noise.x),Float(base.y*pow(10,-density.y)*noise.y),Float(base.z*pow(10,-density.z)*noise.z),1)
             pixels.append(holder ? SIMD4(0,0,0,1):value)
+            let scene=SIMD3(0.08+1.04*g+chroma,g,-0.03+0.96*g-chroma)
+            noBorder.append(SIMD4(Float(base.x*pow(10,-scene.x)*noise.x),Float(base.y*pow(10,-scene.y)*noise.y),Float(base.z*pow(10,-scene.z)*noise.z),1))
             polluted.append(SIMD4(Float(0.3+0.2*sin(Double(x))),Float(0.2+0.1*cos(Double(y))),Float(0.1+0.05*sin(Double(x+y))),1))
         } }
         let result = try #require(await NegativeMetering(context:ctx).analyze(try image(pixels,width:w,height:h,context:ctx),parameters:automatic)).result
@@ -38,6 +45,8 @@ struct NegativeMeteringTests {
         #expect(result.offset.w>0.1)
         let bad = try #require(await NegativeMetering(context:ctx).analyze(try image(polluted,width:w,height:h,context:ctx),parameters:automatic)).result
         #expect(bad.base.w<0.5)
+        let missing = try #require(await NegativeMetering(context:ctx).analyze(try image(noBorder,width:w,height:h,context:ctx),parameters:automatic)).result
+        #expect(missing.base.w<0.2)
         Attachment.record("Thin scanner border: \(result); textured bad input: \(bad)",named:"scanner-border-confidence")
     }
 

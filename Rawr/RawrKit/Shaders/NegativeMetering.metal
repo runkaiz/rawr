@@ -10,17 +10,20 @@ constant float logRange = 7.25f; // log10 transmission [-6, 1.25]
 
 struct BaseCandidate { float4 base, location; };
 // Search narrow local strips, rather than demanding that an entire outer band
-// be clear film. 40 offsets x 8 nonoverlapping segments x 4 canvas edges.
+// be clear film. 80 offsets x 8 nonoverlapping segments x 4 canvas edges.
 kernel void negativeMeterBaseCandidates(texture2d<float,access::read> image [[texture(0)]],
     device BaseCandidate *output [[buffer(0)]], uint i [[thread_position_in_grid]]) {
-    if(i>=1280) return;
-    uint side=i/320, offset=(i%320)/8, segment=i%8;
+    if(i>=2560) return;
+    uint side=i/640, offset=(i%640)/8, segment=i%8;
     float2 size(image.get_width(),image.get_height());
     float3 sum(0), square(0), normal[3]={float3(0),float3(0),float3(0)};
+    float3 normalSquare[3]={float3(0),float3(0),float3(0)}, blocks[16];
+    for(uint b=0;b<16;++b) blocks[b]=float3(0);
     uint count=0;
+    float center=(float(offset)+0.5f)/80.0f*0.12f;
     for(uint n=0;n<3;++n) for(uint j=0;j<64;++j) {
         float step=max(0.0012f,1.0f/(side<2 ? size.x:size.y));
-        float across=(float(offset)+0.5f)/40.0f*0.12f+(float(n)-1.0f)*step;
+        float across=center+(float(n)-1.0f)*step;
         float along=0.04f+(float(segment)+(float(j)+0.5f)/64.0f)/8.0f*0.92f;
         float2 uv=side<2 ? float2(side==0 ? across:1-across,along) :
             float2(along,side==2 ? across:1-across);
@@ -28,14 +31,47 @@ kernel void negativeMeterBaseCandidates(texture2d<float,access::read> image [[te
         float4 p=image.read(min(uint2(uv*size),uint2(size)-1));
         float3 v=p.rgb/max(p.a,1e-6f);
         if(!all(isfinite(p)) || p.a<0.99f || any(v<=1e-5f) || any(v>=0.995f)) continue;
-        sum+=v; square+=v*v; normal[n]+=v/64.0f; ++count;
+        sum+=v; square+=v*v; normal[n]+=v/64.0f;
+        normalSquare[n]+=v*v/64.0f; blocks[j/4]+=v/12.0f; ++count;
     }
     float3 mean=sum/max(1u,count);
-    float3 cv=sqrt(max(float3(0),square/max(1u,count)-mean*mean))/max(mean,1e-6f);
+    float3 rawVariance=max(float3(0),square/max(1u,count)-mean*mean), blockVariance(0);
+    for(uint b=0;b<16;++b) blockVariance+=(blocks[b]-mean)*(blocks[b]-mean)/16.0f;
+    // Grain is sample noise, not spatial shading. Estimate the variance of
+    // block means after subtracting their expected within-block noise.
+    float3 cv=sqrt(max(float3(0),blockVariance-rawVariance/12.0f))/max(mean,1e-6f);
+    float3 meanError=sqrt(rawVariance/192.0f)/max(mean,1e-6f);
     float flat=max(max(cv.x,cv.y),cv.z);
     float3 trend=abs(normal[0]-normal[2])/max(mean,1e-6f);
-    bool valid=count==192 && flat<0.04f && all(trend<0.012f);
-    output[i]={float4(mean,valid ? clamp(1-flat/0.08f,0.0f,1.0f):0),float4(side,segment,offset,0)};
+    float3 noise=max(float3(0),normalSquare[0]-normal[0]*normal[0])+
+        max(float3(0),normalSquare[2]-normal[2]*normal[2]);
+    float3 trendTolerance=0.004f+2.5f*sqrt(noise/64.0f)/max(mean,1e-6f);
+    bool valid=count==192 && flat<0.04f && all(trend<trendTolerance);
+    // A smooth scene gradient can be locally flat. Require a supported edge
+    // nearby; average whole line segments so individual grain/dust is not an edge.
+    float edge=0, previous=0; bool havePrevious=false;
+    if(valid) for(int k=-16;k<=16;++k) {
+        float across=center+float(k)*0.003f;
+        if(across<=0 || across>=1) { havePrevious=false; continue; }
+        float line=0; uint support=0;
+        for(uint j=0;j<64;++j) {
+            float along=0.04f+(float(segment)+(float(j)+0.5f)/64.0f)/8.0f*0.92f;
+            float2 uv=side<2 ? float2(side==0 ? across:1-across,along) :
+                float2(along,side==2 ? across:1-across);
+            float4 p=image.read(min(uint2(uv*size),uint2(size)-1));
+            if(!all(isfinite(p)) || p.a<0.99f) continue;
+            line+=dot(clamp(p.rgb/max(p.a,1e-6f)/max(mean,1e-6f),0.0f,2.0f),float3(1.0f/3.0f));
+            ++support;
+        }
+        if(support<60) { havePrevious=false; continue; }
+        line/=float(support);
+        if(havePrevious) edge=max(edge,abs(line-previous));
+        previous=line; havePrevious=true;
+    }
+    valid=valid && edge>0.12f;
+    float uncertainty=max(max(meanError.x,meanError.y),meanError.z);
+    float confidence=clamp(1-flat/0.08f,0.0f,1.0f)*clamp(1-uncertainty/0.05f,0.0f,1.0f);
+    output[i]={float4(mean,valid ? confidence:0),float4(side,segment,offset,edge)};
 }
 
 kernel void negativeMeterBaseSelect(texture2d<float,access::read> image [[texture(0)]],
@@ -50,20 +86,19 @@ kernel void negativeMeterBaseSelect(texture2d<float,access::read> image [[textur
     }
     interior/=max(1u,valid);
     float best=-1e6f;
-    for(uint a=0;a<1280;++a) {
+    for(uint a=0;a<2560;++a) {
         BaseCandidate p=candidates[a];
         if(p.base.w==0 || !all(p.base.rgb>interior*1.08f)) continue;
-        uint sides=0,segments=0; float3 sum(0); float confidence=0; uint count=0;
-        for(uint b=0;b<1280;++b) {
+        uint sides=0,segments=0,votes=0; float3 sum(0); float confidence=0; uint count=0;
+        for(uint b=0;b<2560;++b) {
             BaseCandidate q=candidates[b];
             if(q.base.w==0 || any(abs(q.base.rgb-p.base.rgb)/max(p.base.rgb,1e-6f)>0.035f)) continue;
             // One vote per segment prevents a wide strip at adjacent offsets
             // from fabricating independent support.
-            if(q.location.x==p.location.x) {
-                uint bit=1u<<uint(q.location.y);
-                if(segments&bit) continue;
-                segments|=bit;
-            }
+            uint bit=1u<<(uint(q.location.x)*8+uint(q.location.y));
+            if(votes&bit) continue;
+            votes|=bit;
+            if(q.location.x==p.location.x) segments|=1u<<uint(q.location.y);
             sides|=1u<<uint(q.location.x);
             sum+=q.base.rgb; confidence+=q.base.w; ++count;
         }

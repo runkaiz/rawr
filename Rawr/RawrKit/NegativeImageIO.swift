@@ -8,6 +8,12 @@ import UniformTypeIdentifiers
 enum NegativeImageIO {
     static let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
 
+    /// Reserve two thirds of RAM for the OS, decoder, caches and other apps.
+    /// The remaining allowance estimates 48 bytes/pixel for active float stages.
+    static func nativePixelLimit(physicalBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Double {
+        min(128_000_000, max(1_000_000, Double(physicalBytes)/144))
+    }
+
     static func load(url: URL, context: ProcessingContext, allowDownscale: Bool = true) throws -> ImageData {
         let stageStart = ProcessInfo.processInfo.systemUptime
         defer { context.trace.record("decode", since: stageStart, device: context.device) }
@@ -17,7 +23,8 @@ enum NegativeImageIO {
         if ImageDecoder.rawExtensions.contains(url.pathExtension.lowercased()) {
             guard let raw = try LinearDNG.filter(url: url) ?? CIRAWFilter(imageURL: url), !raw.decoderVersion.rawValue.isEmpty,
                   raw.decoderVersion.rawValue != "None" else { throw ImageDecoder.DecodeError.unsupportedRAW }
-            let scale = try ImageDecoder.workingScale(width:raw.nativeSize.width,height:raw.nativeSize.height,allowDownscale:allowDownscale)
+            let scale = try ImageDecoder.workingScale(width:raw.nativeSize.width,height:raw.nativeSize.height,
+                allowDownscale:allowDownscale,nativePixelLimit:nativePixelLimit())
             raw.scaleFactor = scale
             if scale < 1 {
                 downscaled = true

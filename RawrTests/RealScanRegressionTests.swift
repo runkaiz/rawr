@@ -10,7 +10,8 @@ private final class ScanFixtureBundle {}
 struct RealScanRegressionTests {
     /// Independent TIFF/DNG writer; no source photo or private metadata.
     private func dng(extra: UInt16 = 8000, usesExtra: Bool = false, compression: Int = 1,
-                     black: Int = 4080, orientation: Int = 6, illuminant: Bool = true) -> Data {
+                     black: Int = 4080, orientation: Int = 6, illuminant: Bool = true,
+                     planes: Int = 4, privateBytes: Int = 0) -> Data {
         func bytes(_ values: [Int], _ size: Int) -> Data {
             Data(values.flatMap { v in (0..<size).map { UInt8(truncatingIfNeeded:v >> ($0*8)) } })
         }
@@ -20,14 +21,18 @@ struct RealScanRegressionTests {
         func rational(_ tag:Int,_ values:[Int], signed:Bool = false) {
             entries.append((tag,signed ? 10:5,values.count,bytes(values.flatMap{[$0,10000]},4)))
         }
-        long(256,[256]); long(257,[272]); short(258,[16,16,16,16]); short(259,[compression]); short(262,[34892])
-        long(273,[0]); short(274,[orientation]); short(277,[4]); long(278,[272]); long(279,[256*272*8]); short(284,[1])
+        long(256,[256]); long(257,[272]); short(258,Array(repeating:16,count:planes)); short(259,[compression]); short(262,[34892])
+        long(273,[0]); short(274,[orientation]); short(277,[planes]); long(278,[272]); long(279,[256*272*planes*2]); short(284,[1])
         entries.append((50706,1,4,Data([1,4,0,0])))
         let model = Data("Rawr Synthetic Four Plane\0".utf8); entries.append((50708,2,model.count,model))
-        rational(50721,[10000,0,0,0,10000,0,0,0,10000,0,10000,0],signed:true)
-        rational(50725,[10000,0,0,0,0,usesExtra ? 8000:10000,0,usesExtra ? 2000:0,0,0,10000,0],signed:true)
+        rational(50721,Array([10000,0,0,0,10000,0,0,0,10000,0,10000,0].prefix(planes*3)),signed:true)
+        if planes==4 { rational(50725,[10000,0,0,0,0,usesExtra ? 8000:10000,0,usesExtra ? 2000:0,0,0,10000,0],signed:true) }
         short(50713,[1,1]); rational(50714,[black*10000]); long(50717,[65535])
         rational(50729,[3127,3290]); if illuminant { short(50778,[21]) }
+        if privateBytes>0 {
+            var payload=Data("Rawr Tests\0".utf8);payload.append(Data(count:privateBytes-payload.count))
+            entries.append((50740,1,payload.count,payload))
+        }
         entries.sort{$0.0<$1.0}
         var result = Data([73,73,42,0,8,0,0,0]); result.append(bytes([entries.count],2))
         var auxiliary = Data()
@@ -41,7 +46,7 @@ struct RealScanRegressionTests {
         let offset = 8+2+entries.firstIndex(where:{$0.0==273})!*12+8
         result.replaceSubrange(offset..<offset+4,with:bytes([result.count],4))
         for y in 0..<272 { for x in 0..<256 {
-            result.append(bytes([black+6000+x*90,black+9000+y*80,black+12000+x*60,Int(extra)],2))
+            result.append(bytes(Array([black+6000+x*90,black+9000+y*80,black+12000+x*60,Int(extra)].prefix(planes)),2))
         } }
         return result
     }
@@ -98,6 +103,13 @@ struct RealScanRegressionTests {
         #expect(a[0]/b[0]<1.15)
     }
 
+    @Test func `Large opaque vendor metadata does not reject a three-plane DNG`() throws {
+        let data=dng(planes:3,privateBytes:1_000_001)
+        #expect(try LinearDNG.threePlaneData(data)==nil)
+        let image=try ImageDecoder(context:CIContext()).decode(data:data,typeHint:"com.adobe.raw-image")
+        #expect(image.width==272 && image.height==256)
+    }
+
     @Test func `160 MP admission has a bounded preview and actionable export ceiling`() throws {
         let scale = try ImageDecoder.workingScale(width:15492,height:10332,allowDownscale:true)
         #expect(scale>0 && scale<1)
@@ -107,6 +119,13 @@ struct RealScanRegressionTests {
         }
         #expect(try ImageDecoder.workingScale(width:10000,height:10700,allowDownscale:false)==1)
         #expect(throws: (any Error).self) { try ImageDecoder.workingScale(width:.infinity,height:1,allowDownscale:true) }
+        let budget=NegativeImageIO.nativePixelLimit(physicalBytes:4*1024*1024*1024)
+        #expect(budget>24_000_000 && budget<107_000_000)
+        let memoryScale=try ImageDecoder.workingScale(width:10000,height:10700,allowDownscale:true,nativePixelLimit:budget)
+        #expect(memoryScale<1 && 107_000_000*Double(memoryScale)*Double(memoryScale)<24_010_000)
+        #expect(throws:(any Error).self) {
+            try ImageDecoder.workingScale(width:10000,height:10700,allowDownscale:false,nativePixelLimit:budget)
+        }
     }
 
     @Test func `An oversized synthetic sensor decodes a working preview before texture allocation`() throws {

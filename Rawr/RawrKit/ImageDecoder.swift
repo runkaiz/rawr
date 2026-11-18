@@ -10,6 +10,7 @@ struct ImageDecoder {
 
     enum DecodeError: LocalizedError {
         case invalidImage, unsupportedRAW, invalidDimensions, unexpectedRAWDimensions, fullResolutionLimit, emptyRAW
+        case nativeMemoryLimit(megapixels: Int)
 
         var errorDescription: String? {
             switch self {
@@ -19,6 +20,7 @@ struct ImageDecoder {
             case .unexpectedRAWDimensions: return "RAW decoder output does not match the full sensor dimensions."
             case .fullResolutionLimit: return "Full-resolution processing is limited to 128 megapixels and 16384 pixels per edge. Use the downscaled preview, or export a smaller calibrated linear DNG/TIFF for full-resolution processing."
             case .emptyRAW: return "RAW decoding produced an empty or transparent frame. Check the capture or export a calibrated linear DNG/TIFF."
+            case .nativeMemoryLimit(let megapixels): return "The full-resolution memory budget on this machine is about \(megapixels) megapixels. Use the working preview or a smaller calibrated linear DNG/TIFF."
             }
         }
     }
@@ -79,12 +81,18 @@ struct ImageDecoder {
 
     /// Oversized originals have a bounded 24 MP working preview. This ceiling
     /// is independent of the source admission limit and never changes exports.
-    static func workingScale(width: Double, height: Double, allowDownscale: Bool) throws -> Float {
+    static func workingScale(width: Double, height: Double, allowDownscale: Bool,
+                             nativePixelLimit: Double = 128_000_000) throws -> Float {
         guard width.isFinite, height.isFinite, width >= 1, height >= 1,
+              nativePixelLimit.isFinite, nativePixelLimit >= 1,
               width <= 65536, height <= 65536, width*height <= 1_000_000_000 else { throw DecodeError.invalidDimensions }
-        if width <= 16384, height <= 16384, width*height <= 128_000_000 { return 1 }
-        guard allowDownscale else { throw DecodeError.fullResolutionLimit }
-        return Float(min(sqrt(24_000_000/(width*height)), 8192/max(width,height)))
+        let withinSize = width <= 16384 && height <= 16384 && width*height <= 128_000_000
+        if withinSize, width*height <= nativePixelLimit { return 1 }
+        guard allowDownscale else {
+            if withinSize { throw DecodeError.nativeMemoryLimit(megapixels:Int(nativePixelLimit/1_000_000)) }
+            throw DecodeError.fullResolutionLimit
+        }
+        return Float(min(sqrt(min(24_000_000,nativePixelLimit)/(width*height)), 8192/max(width,height)))
     }
 
     static func validateContent(_ image: CIImage, context: CIContext) throws {
