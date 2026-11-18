@@ -4,7 +4,7 @@ import Metal
 /// Document-owned calibration. Version is the algorithm/schema version, revision
 /// identifies a particular measurement. Re-measure explicitly after source edits.
 public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
-    public var version = 1
+    public var version = 2
     public var revision = UUID()
     public var folder: URL
     public var calibration: [String: Double]
@@ -36,7 +36,7 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
     }
 
     var isSupported: Bool {
-        version == 1 && confidence.isFinite && (0...1).contains(confidence) &&
+        [1,2].contains(version) && confidence.isFinite && (0...1).contains(confidence) &&
         NegativeDevelopParameters(calibration) != nil &&
         Set(frames.map(\.name)).count == frames.count &&
         frames.allSatisfy { $0.densityShift.isFinite && $0.exposure.isFinite && (-8...8).contains($0.exposure) }
@@ -48,7 +48,7 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
         guard isSupported, url.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path,
               let frame = frames.first(where: { $0.name == url.lastPathComponent }), frame.matches(url) else { return nil }
         var result = node
-        result["rollRelativeDensity"] = frame.optOut ? 0 : 1
+        result["rollRelativeDensity"] = version >= 2 && !frame.optOut ? 1 : 0
         if !frame.optOut {
             for group in ["Base", "Endpoints", "Balance"] where node["auto" + group] == 1 {
                 guard calibration["auto" + group] != 1 else { continue }

@@ -26,7 +26,10 @@ review those frames before exporting the roll.
 
 Automatic detection assumes one approximately centered rectangular exposure.
 Metal integrates bounded contrast along candidate edge normals at 65 angles
-from −8° to +8°. The central integration segments suppress sprockets and
+from −8° to +8°. Boundary searches include near-canvas scanner edges and stay
+in the outer 35% of each axis. Automatic proposals must cover at least 12% of
+the canvas; smaller scene rectangles retain the source for manual review.
+Manual rectangles keep their existing size range. The central integration segments suppress sprockets and
 corner leaks; paired inner edges suppress outer holder rails. Metal reduces
 these projections to 65 candidates (2080 bytes), and CPU code ranks only these
 summaries. A small inset excludes the transition itself. Straightening uses a

@@ -212,7 +212,7 @@ and lock persistence; render automatic/manual UI states offscreen; and record
 24 MP metering wall/GPU/cached timings. The shared Rawr scheme includes only the
 unhosted unit target, with no TEST_HOST or BUNDLE_LOADER and no UI tests.
 
-## Roll consistency (baseline version 1)
+## Roll consistency (baseline version 2)
 
 Connect Folder Input to Negative Develop, optionally through Dust Removal and Auto Crop, and choose **Measure folder roll**. Use one film roll with a consistent capture setup. Measurement streams
 native-resolution sources one at a time, retaining only each frame's compact
@@ -220,7 +220,21 @@ GPU metering summary. It requires at least three reliable frames and supports
 up to 4096 files. Decode failure aborts measurement without replacing a saved
 baseline. Measurement runs in the same request queue as preview and export.
 
-A second Metal kernel performs all cross-frame statistics. Candidate frames
+Roll base calibration first pools validated optical references, comparing
+chromaticity in log R/G and B/G with median/MAD rejection. A clear strip in one
+frame can supply the reference while three or more other scenes establish the
+shared endpoints. A roll with no supported optical reference still requires a
+trusted locked base. Where capture gains or missing borders require it, a second
+streaming pass measures every scene against that common reference. Consistent,
+fully measured rolls reuse their first-pass summaries.
+
+Version 2 preserves negative density for frames brighter than the reference,
+then applies alignment before print clipping. This avoids losing information
+when scanner exposures differ. Single-frame manual development and saved
+version 1 baselines retain their existing finite policy. Balance stays per-frame
+when a changed capture coordinate makes a shared intercept unsupported.
+
+A Metal kernel performs all cross-frame statistics. Candidate frames
 need base and endpoint confidence >= .5, valid sample fraction
 >= .8, out-of-domain density fraction < .1, and density span >= .2. Blanks,
 severe clipping and missing borders therefore cannot set the base/endpoint baseline. A shared neutral axis independently requires at least three accepted frames with balance confidence >= .5; otherwise balance remains automatic per frame. Trusted manual groups retain priority during measurement. Among candidates, median/MAD rejection runs on log10 RGB
@@ -253,7 +267,7 @@ shared roll groups; automatic groups select the roll's saved numbers. The
 resulting complete calibration is validated before GPU rendering.
 
 The baseline and frame edits are Codable node data saved inside `.flow`, with
-algorithm/schema version 1 and a measurement revision UUID. File names, byte
+algorithm/schema version 2 and a measurement revision UUID; version 1 remains readable. File names, byte
 sizes and fractional modification timestamps identify the measured sources.
 Timestamps are stored as numbers so document ISO-8601 date formatting cannot
 truncate them. A changed selected source or unsupported baseline fails rendering
