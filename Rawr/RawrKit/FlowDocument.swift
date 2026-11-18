@@ -77,3 +77,42 @@ public struct DocumentMetadata: Codable {
         self.appVersion = appVersion
     }
 }
+
+extension NodeGraph {
+    /// Validate the whole document, including disconnected cycles, before any processor runs.
+    func validationError() -> String? {
+        var nodesByID: [UUID: NodeData] = [:]
+        for node in nodes {
+            guard nodesByID.updateValue(node, forKey: node.id) == nil else {
+                return "Invalid graph: duplicate node IDs."
+            }
+        }
+        var incoming = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, 0) })
+        var downstream: [UUID: [UUID]] = [:]
+        var occupied: [UUID: Set<String>] = [:]
+        for connection in connections {
+            guard let source = nodesByID[connection.fromNodeId],
+                  let target = nodesByID[connection.toNodeId],
+                  source.outputs.contains(connection.fromOutput),
+                  target.inputs.contains(connection.toInput) else {
+                return "Invalid graph: a connection references a missing node or port."
+            }
+            guard occupied[target.id, default: []].insert(connection.toInput).inserted else {
+                return "Invalid graph: multiple connections to the same input."
+            }
+            incoming[target.id, default: 0] += 1
+            downstream[source.id, default: []].append(target.id)
+        }
+        var ready = nodes.filter { incoming[$0.id] == 0 }.map(\.id)
+        var cursor = 0
+        while cursor < ready.count {
+            let id = ready[cursor]
+            cursor += 1
+            for target in downstream[id, default: []] {
+                incoming[target, default: 0] -= 1
+                if incoming[target] == 0 { ready.append(target) }
+            }
+        }
+        return ready.count == nodes.count ? nil : "Invalid graph: cycle detected. Remove cyclic connections before executing."
+    }
+}
