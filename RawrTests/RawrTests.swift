@@ -241,6 +241,6 @@ struct RawrTests {
         let destination = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
         CGImageDestinationAddImage(destination, image, nil)
         try #require(CGImageDestinationFinalize(destination))
-        Attachment.record(fileURL: url)
+        Attachment.record(try Data(contentsOf: url), named: "raw-preview.png")
     }
 }
