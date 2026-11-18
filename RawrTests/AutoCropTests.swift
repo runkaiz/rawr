@@ -142,6 +142,38 @@ struct AutoCropTests {
         #expect(manual.result.base != metered.result.base)
     }
 
+    @Test func `Straightened crop agrees with independent source-space pixel oracle`() async throws {
+        let ctx = try context()
+        let angle = 4.5
+        let input = try fixture(ctx,degrees: angle,defects: false)
+        var node = NodeData(type: .autoCrop,position: .zero)
+        node.autoCrop?.manual = CropGeometry(width: 0.6,height: 0.45,degrees: angle)
+        let output = try #require(await AutoCropProcessor(context: ctx).process(inputs: ["Input": input],node: node,context: ctx)?["Output"])
+        let width = output.texture.width, height = output.texture.height
+        let buffer = try #require(ctx.device.makeBuffer(length: width*height*16))
+        let command = try #require(ctx.commandQueue.makeCommandBuffer())
+        let blit = try #require(command.makeBlitCommandEncoder())
+        blit.copy(from: output.texture,sourceSlice: 0,sourceLevel: 0,sourceOrigin: MTLOrigin(),
+            sourceSize: MTLSize(width: width,height: height,depth: 1),to: buffer,destinationOffset: 0,
+            destinationBytesPerRow: width*16,destinationBytesPerImage: width*height*16)
+        blit.endEncoding()
+        command.commit()
+        await command.completed()
+        let pixels = buffer.contents().assumingMemoryBound(to: SIMD4<Float>.self)
+        var error: Float = 0
+        for y in stride(from: 5,to: height-5,by: 17) {
+            for x in stride(from: 5,to: width-5,by: 19) {
+                let u = (Double(x)+0.5)/Double(width)*0.6-0.3
+                let v = (Double(y)+0.5)/Double(height)*0.45-0.225
+                let t = Float(0.16+0.30*(u+0.36)/0.72+0.05*sin(v*18))
+                let expected = SIMD4<Float>(0.8*t,0.4*t,0.2*t,1)
+                for c in 0..<4 { error=max(error,abs(pixels[y*width+x][c]-expected[c])) }
+            }
+        }
+        #expect(error < 0.0001)
+        Attachment.record("Straightened affine pixel maximum error: \(error)",named: "crop-affine-error")
+    }
+
     @Test func `Saved manual crop controls preview export and pixel orientation`() async throws {
         let ctx = try context()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("CropTests-\(UUID())")
@@ -156,7 +188,7 @@ struct AutoCropTests {
         var source = NodeData(type: .imageInput,position: .zero)
         source.imageURL = url
         var crop = NodeData(type: .autoCrop,position: .zero)
-        crop.autoCrop?.manual = CropGeometry(width: 0.5,height: 0.4)
+        crop.autoCrop?.manual = CropGeometry(centerY: 0.4,width: 0.5,height: 0.4)
         let preview = NodeData(type: .preview,position: .zero)
         let graph = NodeGraph(nodes: [source,crop,preview], connections: [
             Connection(fromNodeId: source.id,fromOutput: "Image",toNodeId: crop.id,toInput: "Input"),
@@ -172,7 +204,7 @@ struct AutoCropTests {
         let exported = try ImageDecoder(context: ctx.ciContext).decode(url: outputURL)
         #expect(exported.width == 320)
         #expect(exported.height == 192)
-        let expected = try #require(cg.cropping(to: CGRect(x: 160,y: 144,width: 320,height: 192)))
+        let expected = try #require(cg.cropping(to: CGRect(x: 160,y: 96,width: 320,height: 192)))
         var actualBytes = [Float](repeating: 0,count: 320*192*4)
         var expectedBytes = actualBytes
         ctx.linearCIContext.render(CIImage(cgImage: exported),toBitmap: &actualBytes,rowBytes: 320*16,
