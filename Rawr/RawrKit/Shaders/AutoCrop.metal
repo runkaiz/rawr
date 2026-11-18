@@ -69,7 +69,7 @@ kernel void autoCropSelect(device const float *profiles [[buffer(0)]],
             for (uint j=start+1;j<end-1;++j) {
                 if(p[j] < maximum*0.45f || p[j] < p[j-1] || p[j] < p[j+1]) continue;
                 float proximity = side == 0 ? float(j)/256.0f : 1.0f-float(j)/256.0f;
-                float score=p[j]*(0.25f+proximity*3.0f);
+                float score=proximity+0.03f*p[j];
                 if(score>best) { best=score; index=j; }
             }
             uint c=axis*2+side;

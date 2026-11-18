@@ -15,7 +15,7 @@ private struct CropTransform {
     }
 }
 
-/// Full-image edge maps and line integration stay on Metal. CPU ranks 65 tiny
+/// Edge contrasts and line integration stay on Metal. CPU ranks 65 tiny
 /// candidates; image pixels never cross to CPU. Cache is bounded to four scans.
 actor AutoCropDetector {
     private let context: ProcessingContext

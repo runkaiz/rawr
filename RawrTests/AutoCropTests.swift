@@ -31,7 +31,7 @@ struct AutoCropTests {
                 if abs(u)<0.36 && abs(v)<0.29 {
                     let t = Float(0.16 + 0.30*(u+0.36)/0.72 + 0.05*sin(v*18))
                     rgb *= t
-                } else if abs(u)>0.455 || abs(v)>0.445 {
+                } else if abs(u)>0.43 || abs(v)>0.41 {
                     rgb = camera ? SIMD3(repeating: 1) : SIMD3(repeating: 0.006)
                 } else if defects {
                     if abs(v)>0.35 && abs(v)<0.40 && abs(u)<0.43 && Int((u+0.5)*80)%8<3 {
