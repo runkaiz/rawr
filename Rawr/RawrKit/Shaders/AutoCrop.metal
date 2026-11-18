@@ -3,7 +3,16 @@ using namespace metal;
 
 constant uint cropBins = 256;
 constant uint cropAngles = 65; // -8 through +8 degrees, quarter-degree steps
-constant sampler cropSampler(coord::pixel, address::clamp_to_edge, filter::linear);
+// Explicit bilinear reads also work on devices without optional float32
+// hardware filtering; full-precision transmittance need not be down-converted.
+float4 cropSample(texture2d<float, access::read> image, float2 point) {
+    float2 size(image.get_width(),image.get_height());
+    float2 p=clamp(point-0.5f,float2(0),size-1.0f);
+    uint2 a=uint2(floor(p)), b=min(a+1,uint2(size)-1);
+    float2 t=fract(p);
+    return mix(mix(image.read(a),image.read(uint2(b.x,a.y)),t.x),
+        mix(image.read(uint2(a.x,b.y)),image.read(b),t.x),t.y);
+}
 
 float2 cropPoint(float2 uv, float angle, float2 size) {
     float2 p = (uv - 0.5f) * size;
@@ -18,7 +27,7 @@ float cropLuma(float4 p) {
 // Each thread integrates a line normal to an edge. Central line segments avoid
 // sprockets, scanner rails, and corner leaks. Contrast is bounded per sample so
 // isolated holes/hot spots cannot dominate an otherwise unsupported edge.
-kernel void autoCropProjections(texture2d<float, access::sample> image [[texture(0)]],
+kernel void autoCropProjections(texture2d<float, access::read> image [[texture(0)]],
     device float *profiles [[buffer(0)]], uint3 tid [[thread_position_in_grid]]) {
     if (tid.x >= cropBins || tid.y >= 2 || tid.z >= cropAngles) return;
     float2 size(image.get_width(),image.get_height());
@@ -31,7 +40,7 @@ kernel void autoCropProjections(texture2d<float, access::sample> image [[texture
         float2 delta = tid.y == 0 ? float2(1.0f/cropBins,0) : float2(0,1.0f/cropBins);
         float2 p = cropPoint(uv-delta,angle,size), r = cropPoint(uv+delta,angle,size);
         if (any(p < 0.5f) || any(p >= size-0.5f) || any(r < 0.5f) || any(r >= size-0.5f)) continue;
-        float a = cropLuma(image.sample(cropSampler,p)), b = cropLuma(image.sample(cropSampler,r));
+        float a = cropLuma(cropSample(image,p)), b = cropLuma(cropSample(image,r));
         float contrast = abs(a-b)/max(0.04f,max(a,b));
         if (!isfinite(contrast)) continue;
         score += min(contrast,1.0f);
@@ -76,7 +85,7 @@ kernel void autoCropSelect(device const float *profiles [[buffer(0)]],
 }
 
 struct CropTransform { float4 rect; float4 rotation; }; // cx,cy,w,h; radians
-kernel void autoCropResample(texture2d<float, access::sample> image [[texture(0)]],
+kernel void autoCropResample(texture2d<float, access::read> image [[texture(0)]],
     texture2d<float, access::write> output [[texture(1)]],
     constant CropTransform &cfg [[buffer(0)]], uint2 xy [[thread_position_in_grid]]) {
     if (xy.x>=output.get_width() || xy.y>=output.get_height()) return;
@@ -84,13 +93,13 @@ kernel void autoCropResample(texture2d<float, access::sample> image [[texture(0)
     float2 local=(uv-0.5f)*cfg.rect.zw;
     float2 size(image.get_width(),image.get_height());
     float2 p=cropPoint(local+0.5f,cfg.rotation.x,size)+(cfg.rect.xy-0.5f)*size;
-    output.write(image.sample(cropSampler,p),xy);
+    output.write(cropSample(image,p),xy);
 }
 
 // Validate narrow strips just outside the detected exposure, before cropping.
 // A base needs two matching, bright, spatially uniform sides. Dark holders,
 // clipped light tables, sprocket holes, leaks and scene texture are rejected.
-kernel void autoCropBorder(texture2d<float, access::sample> image [[texture(0)]],
+kernel void autoCropBorder(texture2d<float, access::read> image [[texture(0)]],
     device float4 &result [[buffer(0)]], constant CropTransform &cfg [[buffer(1)]],
     uint tid [[thread_position_in_grid]]) {
     if (tid) return;
@@ -104,7 +113,7 @@ kernel void autoCropBorder(texture2d<float, access::sample> image [[texture(0)]]
                 float2(t*cfg.rect.z,(side==2 ? -1.0f:1.0f)*(cfg.rect.w*0.5f+0.012f));
             float2 p=cropPoint(uv+0.5f,cfg.rotation.x,size)+(cfg.rect.xy-0.5f)*size;
             if (any(p<0.5f) || any(p>=size-0.5f)) continue;
-            float4 sample=image.sample(cropSampler,p);
+            float4 sample=cropSample(image,p);
             float3 v=sample.rgb/max(sample.a,1e-6f);
             if (all(isfinite(v)) && all(v>0.002f) && all(v<0.995f) && sample.a>0.99f) {
                 sum+=v; square+=v*v; ++count;
@@ -118,7 +127,7 @@ kernel void autoCropBorder(texture2d<float, access::sample> image [[texture(0)]]
     for(uint i=0;i<64;++i) {
         float2 uv=(float2(i%8,i/8)+0.5f)/8.0f-0.5f;
         float2 p=cropPoint(uv*cfg.rect.zw*0.8f+0.5f,cfg.rotation.x,size)+(cfg.rect.xy-0.5f)*size;
-        interior+=image.sample(cropSampler,p).rgb/64.0f;
+        interior+=cropSample(image,p).rgb/64.0f;
     }
     result=float4(0);
     for(uint a=0;a<4;++a) for(uint b=a+1;b<4;++b) {
