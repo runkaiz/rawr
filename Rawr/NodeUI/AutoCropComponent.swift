@@ -39,7 +39,9 @@ struct AutoCropControls: View {
             if let result {
                 Text("Confidence: \(Int(result.confidence * 100))%")
                     .foregroundStyle(result.accepted ? .primary : .secondary)
-                Text(result.accepted ? "Frame detected · review the crop" : "Uncertain frame · retained intact")
+                Text(result.accepted ? "Frame detected · review the crop" :
+                    (settings.rollSize != nil ? "Uncertain frame · review before roll export" :
+                        (settings.manual != nil ? "Uncertain detection · manual crop applied" : "Uncertain frame · retained intact")))
                     .font(.caption2).foregroundStyle(.secondary)
                 CropOutline(geometry: geometry, sourceWidth: result.sourceWidth, sourceHeight: result.sourceHeight)
                     .frame(height: 100)
