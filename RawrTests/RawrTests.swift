@@ -44,10 +44,9 @@ struct RawrTests {
     @Test func `RAW URL and data decode the sensor instead of embedded preview`() throws {
         let url = try fixture()
         let data = try Data(contentsOf: url)
-        let imageIO = try #require(CGImageSourceCreateWithData(data as CFData, nil))
-        let embedded = try #require(CGImageSourceCreateImageAtIndex(imageIO, 0, nil))
-        #expect(embedded.width == 16)
-        #expect(embedded.height == 12)
+        let raw = try #require(CIRAWFilter(imageData: data, identifierHint: "com.adobe.raw-image"))
+        #expect(!raw.decoderVersion.rawValue.isEmpty)
+        #expect(raw.nativeSize == CGSize(width: 256, height: 256))
         let decoder = ImageDecoder(context: CIContext())
         let images = [try decoder.decode(url: url),
                       try decoder.decode(data: data, typeHint: "com.adobe.raw-image")]
@@ -55,6 +54,35 @@ struct RawrTests {
             #expect(image.width == 256)
             #expect(image.height == 256)
         }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["RAWR_NEF_FIXTURE"] != nil))
+    func `Original Nikon regression decodes and exports the full sensor`() async throws {
+        // Optional external NASA fixture; the always-on RAW tests use the small
+        // generated DNG. Keep this large photograph out of the source repository.
+        let input = URL(fileURLWithPath: try #require(ProcessInfo.processInfo.environment["RAWR_NEF_FIXTURE"]))
+        let bytes = try Data(contentsOf: input)
+        let source = try #require(CGImageSourceCreateWithData(bytes as CFData, nil))
+        let embedded = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(embedded.width == 160)
+        #expect(embedded.height == 120)
+        let decoder = ImageDecoder(context: CIContext())
+        let fromURL = try decoder.decode(url: input)
+        let fromData = try decoder.decode(data: bytes, typeHint: "com.nikon.raw-image")
+        for image in [fromURL, fromData] {
+            #expect(image.width == 4256)
+            #expect(image.height == 2832)
+        }
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let kit = RawrKit()
+        #expect(await kit.executeGraph(graph(input)))
+        #expect(kit.processedPreviewImage?.width == 1920)
+        let output = root.appendingPathComponent("nikon-full.tiff")
+        #expect(await kit.exportImage(graph(input), to: output))
+        let exported = try decoder.decode(url: output)
+        #expect(exported.width == 4256)
+        #expect(exported.height == 2832)
     }
 
     @Test func `RAW preview cache does not reduce full size exports`() async throws {
