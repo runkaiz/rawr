@@ -39,7 +39,8 @@ struct NegativeMeteringResult: Equatable, Sendable {
 }
 
 struct NegativeMeteringOutput {
-    let buffer: MTLBuffer
+    let lease: BufferLease
+    var buffer: MTLBuffer { lease.buffer }
     let result: NegativeMeteringResult
     let gpuSeconds: Double
 }
@@ -66,9 +67,7 @@ actor NegativeMetering {
         self.context = context
         var pipelines: [String: MTLComputePipelineState] = [:]
         for name in ["Sample", "Histogram", "Merge", "Select", "Moments", "Fit"] {
-            if let function = context.shaderLibrary?.makeFunction(name: "negativeMeter" + name) {
-                pipelines[name] = try? context.device.makeComputePipelineState(function: function)
-            }
+            pipelines[name] = context.resources.pipeline("negativeMeter" + name)
         }
         self.pipelines = pipelines
     }
@@ -78,17 +77,23 @@ actor NegativeMetering {
         guard let manual = NegativeDevelopParameters(parameters), pipelines.count == 6 else { return nil }
         let autoBase = parameters["autoBase"] == 1
         let key = Key(source: input.contentID, base: autoBase ? .zero : manual.base)
-        if let cached = cache[key] { return cached }
+        if let cached = cache[key] {
+            context.trace.record("meter-cache", since: stageStart, device: context.device)
+            return cached
+        }
         let width = min(512, input.texture.width), height = min(512, input.texture.height)
         let count = width * height, groups = (count + 1023) / 1024
         var cfg = Config(grid: SIMD4(UInt32(width), UInt32(height), UInt32(count), autoBase ? 1 : 0), base: manual.base)
         let device = context.device
-        guard let samples = device.makeBuffer(length: count * 16, options: .storageModePrivate),
-              let partial = device.makeBuffer(length: groups * 3 * 4096 * 4, options: .storageModePrivate),
-              let histogram = device.makeBuffer(length: 3 * 4096 * 4, options: .storageModePrivate),
-              let moments = device.makeBuffer(length: groups * 3 * 16, options: .storageModePrivate),
-              let summary = device.makeBuffer(length: MemoryLayout<NegativeMeteringResult>.stride, options: .storageModeShared),
+        guard let samplesLease = context.resources.buffer(length: count * 16),
+              let partialLease = context.resources.buffer(length: groups * 3 * 4096 * 4),
+              let histogramLease = context.resources.buffer(length: 3 * 4096 * 4),
+              let momentsLease = context.resources.buffer(length: groups * 3 * 16),
+              let summaryLease = context.resources.buffer(length: MemoryLayout<NegativeMeteringResult>.stride, options: .storageModeShared),
               let command = context.commandQueue.makeCommandBuffer() else { return nil }
+        let samples = samplesLease.buffer, partial = partialLease.buffer
+        let histogram = histogramLease.buffer, moments = momentsLease.buffer, summary = summaryLease.buffer
+        defer { withExtendedLifetime([samplesLease, partialLease, histogramLease, momentsLease]) {} }
         var initial = NegativeMeteringResult()
         withUnsafeBytes(of: &initial) { summary.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
         command.label = "Negative metering: grid, histograms, CDF, neutral axis"
@@ -145,7 +150,7 @@ actor NegativeMetering {
             return nil
         }
         let result = summary.contents().load(as: NegativeMeteringResult.self)
-        let output = NegativeMeteringOutput(buffer: summary, result: result, gpuSeconds: command.gpuEndTime - command.gpuStartTime)
+        let output = NegativeMeteringOutput(lease: summaryLease, result: result, gpuSeconds: command.gpuEndTime - command.gpuStartTime)
         computationCount += 1
         if cache[key] == nil { order.append(key) }
         cache[key] = output

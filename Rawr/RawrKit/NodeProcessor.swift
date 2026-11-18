@@ -4,10 +4,11 @@ import CoreImage
 
 /// Runtime representation of image data flowing through the graph
 public struct ImageData {
+    var textureLeases: [TextureLease] = []
     public let contentID: UUID
     public let texture: MTLTexture
     public let infraredTexture: MTLTexture?
-    public let cgImage: CGImage?
+    public var cgImage: CGImage?
     public let metadata: ImageMetadata
 
     public init(texture: MTLTexture, cgImage: CGImage? = nil, metadata: ImageMetadata = ImageMetadata(), contentID: UUID = UUID(), infraredTexture: MTLTexture? = nil) {
@@ -17,6 +18,11 @@ public struct ImageData {
         self.cgImage = cgImage
         self.metadata = metadata
     }
+    init(lease: TextureLease, metadata: ImageMetadata) {
+        self.init(texture: lease.texture, metadata: metadata)
+        textureLeases = [lease]
+    }
+
 }
 
 /// Metadata about an image as it flows through the pipeline
@@ -27,6 +33,7 @@ public struct ImageMetadata {
     public var orientation: UInt32 = 1
     public var domain: ImageDomain = .unspecified
     var sourceURL: URL?
+    var dustMaskLease: TextureLease?
     var dustMaskPreview: MTLTexture?
 
     public init(width: Int = 0, height: Int = 0, colorSpace: CGColorSpace? = nil, orientation: UInt32 = 1) {
@@ -67,18 +74,28 @@ public class ProcessingContext {
     public let linearCIContext: CIContext
     public let shaderLibrary: MTLLibrary?
     public weak var logger: RawrKit?
-    let trace = PipelineTrace()
+    let resources: MetalResources
+    let trace: PipelineTrace
     var negativeInputIDs: Set<UUID> = []
 
-    public init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext, logger: RawrKit? = nil) {
+    public convenience init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext, logger: RawrKit? = nil) {
+        self.init(device: device, commandQueue: commandQueue, ciContext: ciContext,
+            logger: logger, resources: MetalResources(device: device), trace: PipelineTrace())
+    }
+
+    init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext,
+         logger: RawrKit?, resources: MetalResources, trace: PipelineTrace) {
         self.device = device
         self.commandQueue = commandQueue
         self.ciContext = ciContext
         self.linearCIContext = CIContext(mtlDevice: device, options: [
+            .cacheIntermediates: false,
             .workingFormat: CIFormat.RGBAf,
             .workingColorSpace: NegativeImageIO.colorSpace
         ])
-        self.shaderLibrary = try? device.makeDefaultLibrary(bundle: Bundle(for: RawrKit.self))
+        self.resources = resources
+        self.trace = trace
+        self.shaderLibrary = resources.library
         self.logger = logger
     }
 

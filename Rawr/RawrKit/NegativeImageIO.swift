@@ -64,6 +64,7 @@ enum NegativeImageIO {
         context.linearCIContext.render(normalized, to: texture, commandBuffer: command, bounds: bounds, colorSpace: colorSpace)
         command.commit()
         awaitCompletion(command)
+        context.trace.record("decode-upload", since: stageStart, device: context.device, command: command)
         guard command.status == .completed else { throw ImageDecoder.DecodeError.invalidImage }
         var metadata = ImageMetadata(width: texture.width, height: texture.height, colorSpace: colorSpace)
         metadata.domain = .linearTransmittance
@@ -83,7 +84,7 @@ enum NegativeImageIO {
             image = image.applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
         }
         // Profiled unsigned 16-bit linear TIFF/preview, quantized only here.
-        return context.createCGImage(image, from: image.extent, format: .RGBA16,
+        return context.createCGImage(image, from: image.extent, format: texture.pixelFormat == .rgba16Float ? .RGBAh : .RGBA16,
             colorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!)
     }
 }

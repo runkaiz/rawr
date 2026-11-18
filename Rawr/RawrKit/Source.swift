@@ -35,19 +35,17 @@ public class RawrKit: ObservableObject {
     private var cachedSourceImage: CGImage?
     private var cachedSourceURL: URL?
     private var negativeSourceTexture: MTLTexture?
-    private struct NegativeSourceKey: Equatable {
-        let url: URL
-        let modified: Date?
-        let size: UInt64?
-        let inode: UInt64?
-    }
-    private var negativeSourceCache: (key: NegativeSourceKey, image: ImageData)?
+    private var negativeSourceCache: (key: SourceIdentity, image: ImageData)?
+    private var legacyTextureCache: (key: SourceIdentity, limit: CGFloat?, image: ImageData)?
+    private var beforePreviewKey: (texture: ObjectIdentifier, limit: CGFloat)?
 
-    public init() {
-        self.device = MTLCreateSystemDefaultDevice()
+    public convenience init() { self.init(sharedResources: nil) }
+
+    init(sharedResources: MetalResources?, trace: PipelineTrace = PipelineTrace()) {
+        self.device = sharedResources?.device ?? MTLCreateSystemDefaultDevice()
 
         if let device = device {
-            self.ciContext = CIContext(mtlDevice: device)
+            self.ciContext = CIContext(mtlDevice: device, options: [.cacheIntermediates: false])
             self.commandQueue = device.makeCommandQueue()
 
             // Initialize graph executor
@@ -56,7 +54,7 @@ public class RawrKit: ObservableObject {
                     device: device,
                     commandQueue: commandQueue,
                     ciContext: self.ciContext,
-                    logger: nil
+                    logger: nil, resources: sharedResources ?? MetalResources(device: device), trace: trace
                 )
                 self.processingContext = context
                 self.graphExecutor = GraphExecutor(context: context)
@@ -75,6 +73,7 @@ public class RawrKit: ObservableObject {
         let entry = LogEntry(message: message, level: level, timestamp: Date())
         DispatchQueue.main.async {
             self.logs.append(entry)
+            if self.logs.count > 500 { self.logs.removeFirst(self.logs.count - 500) }
         }
     }
 
@@ -278,11 +277,15 @@ public class RawrKit: ObservableObject {
             return false
         }
         if graph.nodes.contains(where: { $0.type == .negativeDevelop || $0.type == .dustRemoval }), let texture = negativeSourceTexture {
-            previewImage = NegativeImageIO.boundaryImage(texture, context: processingContext?.linearCIContext ?? ciContext, maxDimension: maxPreviewDimension)
+            let identity = ObjectIdentifier(texture)
+            if beforePreviewKey?.texture != identity || beforePreviewKey?.limit != maxPreviewDimension {
+                previewImage = NegativeImageIO.boundaryImage(texture, context: processingContext?.linearCIContext ?? ciContext, maxDimension: maxPreviewDimension)
+                beforePreviewKey = (identity, maxPreviewDimension)
+            }
         } else if let before = await getSourceImage(from: graph) {
             previewImage = createPreview(from: before)
         }
-        processedPreviewImage = createPreview(from: after)
+        processedPreviewImage = after
         log("Graph execution completed successfully")
         return true
     }
@@ -342,13 +345,7 @@ public class RawrKit: ObservableObject {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
-            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            // Full-frame decode is shared by preview and export. File replacement,
-            // edits, source selection, and explicit cache clearing change identity.
-            let key = NegativeSourceKey(url: url.standardizedFileURL,
-                modified: attributes[.modificationDate] as? Date,
-                size: (attributes[.size] as? NSNumber)?.uint64Value,
-                inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
+            let key = try SourceIdentity(url)
             if let cached = negativeSourceCache, cached.key == key {
                 negativeSourceTexture = cached.image.texture
                 return cached.image
@@ -361,6 +358,25 @@ public class RawrKit: ObservableObject {
             log("Negative input failed: \(error.localizedDescription)", level: .error)
             return nil
         }
+    }
+
+    internal func loadLegacySource(at url: URL) async -> ImageData? {
+        guard let context = processingContext else { return nil }
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let key = try SourceIdentity(url)
+            let limit: CGFloat? = isFullResolutionMode ? nil : maxPreviewDimension
+            if let cached = legacyTextureCache, cached.key == key, cached.limit == limit { return cached.image }
+            guard let image = decodeSourceImage(at: url),
+                  let texture = MetalNodeProcessor(nodeType: .imageInput).createTexture(from: image, device: context.device) else { return nil }
+            var metadata = ImageMetadata(width: image.width, height: image.height, colorSpace: image.colorSpace)
+            metadata.sourceURL = url
+            let data = ImageData(texture: texture, cgImage: image, metadata: metadata)
+            legacyTextureCache = (key, limit, data)
+            setCachedSourceImage(image, for: url)
+            return data
+        } catch { return nil }
     }
 
     // MARK: - Source Image Cache Management
@@ -435,6 +451,8 @@ public class RawrKit: ObservableObject {
     /// Clear the source image cache (call when image URL changes)
     public func clearSourceImageCache() {
         negativeSourceCache = nil
+        legacyTextureCache = nil
+        beforePreviewKey = nil
         negativeStatistics = [:]
         cachedSourceImage = nil
         cachedSourceURL = nil
@@ -580,16 +598,15 @@ public class RawrKit: ObservableObject {
 
         // Get the processed image
         guard let (_, outputs) = result.first,
-              let outputData = outputs["Output"],
-              let finalImage = outputData.cgImage else {
+              let outputData = outputs["Output"] else {
             log("Failed to extract processed image for export", level: .error)
             return false
         }
 
-        log("Processed image at full resolution: \(finalImage.width)x\(finalImage.height)")
+        log("Processed image at full resolution: \(outputData.texture.width)x\(outputData.texture.height)")
 
         // Save the image
-        return await saveImage(finalImage, to: url, format: format)
+        return await saveOutput(outputData, to: url, format: format)
     }
 
     /// Export all images from a folder input node (batch export)
@@ -660,19 +677,13 @@ public class RawrKit: ObservableObject {
         // Switch to full resolution mode
         isFullResolutionMode = true
         clearSourceImageCache()
+        await graphExecutor?.clearCache()
 
         defer {
             isFullResolutionMode = false
             clearSourceImageCache()
         }
 
-        guard let executor = graphExecutor else {
-            log("Graph executor not initialized", level: .error)
-            return false
-        }
-
-        var successCount = 0
-        var failCount = 0
 
         let destinations: [URL]
         do {
@@ -682,50 +693,89 @@ public class RawrKit: ObservableObject {
             return false
         }
 
-        // Process each image
-        for (index, imageURL) in imageURLs.enumerated() {
-            log("Processing image \(index + 1)/\(imageURLs.count): \(imageURL.lastPathComponent)")
-
-            // Create a modified graph with the current image index
-            var modifiedGraph = nodeGraph
-            if let nodeIndex = modifiedGraph.nodes.firstIndex(where: { $0.id == folderInputNode.id }) {
-                modifiedGraph.nodes[nodeIndex].parameters["selectedIndex"] = Double(index)
+        guard let executorDevice = processingContext?.device else { return false }
+        let workers = BatchMemoryPolicy.workerCount(urls: imageURLs, graph: nodeGraph, device: executorDevice)
+        log("Batch workers: \(workers) (memory bounded)")
+        // Each worker streams one frame, exports it, then drops its source/cache.
+        // Only pipeline states and the bounded idle resource pool are shared.
+        let results = await withTaskGroup(of: (Int, Int).self) { group in
+            for workerIndex in 0..<workers {
+                group.addTask {
+                    let worker = RawrKit(sharedResources: self.processingContext?.resources,
+                        trace: self.processingContext?.trace ?? PipelineTrace())
+                    worker.isFullResolutionMode = true
+                    var passed = 0, failed = 0
+                    for index in stride(from: workerIndex, to: imageURLs.count, by: workers) {
+                        if Task.isCancelled { failed += 1; continue }
+                        var graph = nodeGraph
+                        if let n = graph.nodes.firstIndex(where: { $0.id == folderInputNode.id }) {
+                            graph.nodes[n].type = .imageInput
+                            graph.nodes[n].imageURL = imageURLs[index]
+                            graph.nodes[n].imageBookmark = nil
+                            graph.nodes[n].parameters = [:]
+                        }
+                        worker.clearSourceImageCache()
+                        if let result = await worker.graphExecutor?.execute(nodeGraph: graph),
+                           let output = result.first?.value["Output"],
+                           await worker.saveOutput(output, to: destinations[index], format: format, replaceExisting: false) {
+                            passed += 1
+                        } else { failed += 1 }
+                    }
+                    worker.clearSourceImageCache()
+                    return (passed, failed)
+                }
             }
-
-            // Clear cache for this image
-            await executor.clearCache()
-            clearSourceImageCache()
-
-            // Execute graph at full resolution
-            let result = await Task.detached {
-                await executor.execute(nodeGraph: modifiedGraph)
-            }.value
-
-            guard !result.isEmpty else {
-                log("No output generated for image \(index + 1)", level: .error)
-                failCount += 1
-                continue
-            }
-
-            // Get the processed image
-            guard let (_, outputs) = result.first,
-                  let outputData = outputs["Output"],
-                  let finalImage = outputData.cgImage else {
-                log("Failed to extract processed image for image \(index + 1)", level: .error)
-                failCount += 1
-                continue
-            }
-
-            // The final install refuses to replace a file created after preflight.
-            if await saveImage(finalImage, to: destinations[index], format: format, replaceExisting: false) {
-                successCount += 1
-            } else {
-                failCount += 1
-            }
+            var total = (0, 0)
+            for await result in group { total.0 += result.0; total.1 += result.1 }
+            return total
         }
+        let successCount = results.0
+        let failCount = results.1
 
         log("Batch export completed: \(successCount) succeeded, \(failCount) failed")
         return failCount == 0
+    }
+
+    private func saveOutput(_ output: ImageData, to url: URL, format: ExportFormat, replaceExisting: Bool = true) async -> Bool {
+        if let image = output.cgImage { return await saveImage(image, to: url, format: format, replaceExisting: replaceExisting) }
+        guard let context = processingContext,
+              let image = CIImage(mtlTexture: output.texture, options: [.colorSpace: NegativeImageIO.colorSpace]) else { return false }
+        let start = ProcessInfo.processInfo.systemUptime
+        defer { context.trace.record("export", since: start, device: context.device) }
+        let temporary = url.deletingLastPathComponent().appendingPathComponent(".rawr-\(UUID()).tmp")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
+        do {
+            // Core Image's demand-driven renderer tiles the image representation;
+            // no full-frame Swift array or intermediate CGImage is allocated.
+            switch format {
+            case .tiff:
+                try context.linearCIContext.writeTIFFRepresentation(of: image, to: temporary,
+                    format: output.texture.pixelFormat == .rgba16Float ? .RGBAh : .RGBA16, colorSpace: colorSpace)
+            case .png:
+                try context.linearCIContext.writePNGRepresentation(of: image, to: temporary, format: .RGBA16, colorSpace: colorSpace)
+            case .jpeg(let quality):
+                try context.linearCIContext.writeJPEGRepresentation(of: image, to: temporary, colorSpace: colorSpace,
+                    options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): quality])
+            }
+            try installExport(temporary, to: url, replaceExisting: replaceExisting)
+            return true
+        } catch {
+            log("Export failed: \(error.localizedDescription)", level: .error)
+            return false
+        }
+    }
+
+    private func installExport(_ temporary: URL, to url: URL, replaceExisting: Bool) throws {
+        if replaceExisting {
+            if FileManager.default.fileExists(atPath: url.path) {
+                _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: url)
+            }
+        } else {
+            try BatchDestinations.install(temporary: temporary, destination: url)
+        }
     }
 
     private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat, replaceExisting: Bool = true) async -> Bool {
@@ -759,15 +809,7 @@ public class RawrKit: ObservableObject {
         }
 
         do {
-            if replaceExisting {
-                if FileManager.default.fileExists(atPath: url.path) {
-                    _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
-                } else {
-                    try FileManager.default.moveItem(at: temporary, to: url)
-                }
-            } else {
-                try BatchDestinations.install(temporary: temporary, destination: url)
-            }
+            try installExport(temporary, to: url, replaceExisting: replaceExisting)
         } catch {
             log("Failed to install export: \(error.localizedDescription)", level: .error)
             return false

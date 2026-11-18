@@ -5,6 +5,8 @@ import Metal
 public actor GraphExecutor {
     private let context: ProcessingContext
     private var processors: [NodeType: NodeProcessor] = [:]
+    private var executing = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
     private var executionCache: [UUID: [String: ImageData]] = [:]
 
     public init(context: ProcessingContext) {
@@ -45,7 +47,10 @@ public actor GraphExecutor {
     ///   - nodeGraph: The graph to execute
     /// - Returns: Dictionary of Preview node outputs (node ID -> output images)
     public func execute(nodeGraph: NodeGraph) async -> [UUID: [String: ImageData]] {
+        await acquire()
+        defer { release() }
         executionCache.removeAll()
+        defer { executionCache.removeAll() }
         if let error = nodeGraph.validationError() {
             context.log(error, level: .error)
             return [:]
@@ -154,8 +159,23 @@ public actor GraphExecutor {
     }
 
     /// Clear the execution cache (useful when graph changes)
-    public func clearCache() {
+    public func clearCache() async {
+        await acquire()
+        defer { release() }
         executionCache.removeAll()
+        for processor in processors.values {
+            (processor as? DustRemovalProcessor)?.clearCache()
+        }
         context.log("Execution cache cleared")
     }
+    private func acquire() async {
+        if executing { await withCheckedContinuation { waiters.append($0) } }
+        else { executing = true }
+    }
+
+    private func release() {
+        if waiters.isEmpty { executing = false }
+        else { waiters.removeFirst().resume() }
+    }
+
 }

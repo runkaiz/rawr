@@ -22,6 +22,7 @@ enum InfraredImageIO {
 
     private static func upload(_ image: CIImage, format: MTLPixelFormat, context: ProcessingContext,
                                colorSpace: CGColorSpace?) throws -> MTLTexture {
+        let stageStart = ProcessInfo.processInfo.systemUptime
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: Int(image.extent.width),
             height: Int(image.extent.height), mipmapped: false)
         d.storageMode = .private
@@ -33,6 +34,7 @@ enum InfraredImageIO {
             bounds: CGRect(x: 0, y: 0, width: d.width, height: d.height), colorSpace: colorSpace ?? NegativeImageIO.colorSpace)
         command.commit()
         command.waitUntilCompleted()
+        context.trace.record("ir-upload", since: stageStart, device: context.device, command: command)
         guard command.status == .completed else { throw ImageDecoder.DecodeError.invalidImage }
         return texture
     }

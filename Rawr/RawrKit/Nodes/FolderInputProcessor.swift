@@ -67,29 +67,8 @@ public class FolderInputProcessor: MetalNodeProcessor {
             return ["Image": image]
         }
 
-        // Load the image directly here while we have folder access, rather than using getCachedSourceImage
-        // which would try to access the file independently
-        guard let cgImage = context.logger?.decodeSourceImage(at: selectedImageURL) else {
-            context.log("Failed to load image from folder", level: .error)
-            return nil
-        }
-
-        // Convert to Metal texture
-        guard let texture = createTexture(from: cgImage, device: context.device) else {
-            context.log("Failed to create Metal texture from image", level: .error)
-            return nil
-        }
-
-        let metadata = ImageMetadata(
-            width: cgImage.width,
-            height: cgImage.height,
-            colorSpace: cgImage.colorSpace
-        )
-
-        let imageData = ImageData(texture: texture, cgImage: cgImage, metadata: metadata)
-        context.log("Image loaded successfully: \(cgImage.width)x\(cgImage.height)")
-
-        return ["Image": imageData]
+        guard let image = await context.logger?.loadLegacySource(at: selectedImageURL) else { return nil }
+        return ["Image": image]
     }
 
     private func resolveBookmark(_ bookmarkData: Data, context: ProcessingContext) -> URL? {

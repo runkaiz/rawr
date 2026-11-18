@@ -21,6 +21,7 @@ public class PreviewProcessor: MetalNodeProcessor {
         context.log("Preview node processed: \(inputData.metadata.width)x\(inputData.metadata.height)")
 
         // A CPU image is created only at this terminal boundary for GPU-only paths.
+        if context.logger?.isFullResolutionMode == true { return ["Output": inputData] }
         let displayMask = context.logger?.isFullResolutionMode == true ? nil : inputData.metadata.dustMaskPreview
         guard inputData.cgImage == nil || displayMask != nil else { return ["Output": inputData] }
         let limit = context.logger.map { $0.isFullResolutionMode ? nil : $0.maxPreviewDimension } ?? nil
@@ -29,6 +30,8 @@ public class PreviewProcessor: MetalNodeProcessor {
             context.log("Failed to render terminal image", level: .error)
             return nil
         }
-        return ["Output": ImageData(texture: inputData.texture, cgImage: image, metadata: inputData.metadata)]
+        var output = inputData
+        output.cgImage = image
+        return ["Output": output]
     }
 }

@@ -4,15 +4,21 @@ import Metal
 /// One command buffer, GPU-only intermediate textures, and no image readback.
 public final class DustRemovalProcessor: MetalNodeProcessor {
     public private(set) var lastGPUTime: Double?
+    private struct CacheKey: Equatable {
+        let source: UUID
+        let node: NodeData
+        let infrared: SourceIdentity?
+    }
+    private var cached: (key: CacheKey, outputs: [String: ImageData])?
     private var pipelines: [String: MTLComputePipelineState] = [:]
     private let names = ["dustIRFit", "dustIRCorrect", "dustIRDilateX", "dustIRDilateY",
         "dustMask", "dustRepair"]
 
+    func clearCache() { cached = nil }
+
     public init(context: ProcessingContext) {
         for name in names {
-            if let f = context.shaderLibrary?.makeFunction(name: name) {
-                pipelines[name] = try? context.device.makeComputePipelineState(function: f)
-            }
+            pipelines[name] = context.resources.pipeline(name)
         }
         super.init(nodeType: .dustRemoval)
     }
@@ -25,6 +31,9 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
             context.log("Dust Removal requires a linear source before Negative Develop", level: .error)
             return nil
         }
+        var node = node
+        node.position = .zero
+        var infraredIdentity: SourceIdentity?
         let useInfrared = node.parameters["useIR"] != 0
         var infrared = useInfrared ? input.infraredTexture : nil
         if useInfrared && (node.infraredURL != nil || node.infraredBookmark != nil) {
@@ -38,12 +47,25 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
                 } else { url = node.infraredURL! }
                 let access = url.startAccessingSecurityScopedResource()
                 defer { if access { url.stopAccessingSecurityScopedResource() } }
+                infraredIdentity = try SourceIdentity(url)
+                let key = CacheKey(source: input.contentID, node: node, infrared: infraredIdentity)
+                if let cached, cached.key == key {
+                    context.trace.record("dust-cache", since: stageStart, device: context.device)
+                    return cached.outputs
+                }
                 infrared = try InfraredImageIO.loadFrame(url: url, context: context)
             } catch {
                 context.log("Infrared frame failed: \(error.localizedDescription)", level: .error)
                 return nil
             }
         }
+        let cacheKey = CacheKey(source: input.contentID, node: node, infrared: infraredIdentity)
+        if let cached, cached.key == cacheKey {
+            context.trace.record("dust-cache", since: stageStart, device: context.device)
+            return cached.outputs
+        }
+        // Release the previous frame before allocating another full-size result.
+        cached = nil
         guard infrared == nil || (infrared!.width == input.texture.width && infrared!.height == input.texture.height),
               var parameters = DustParameters(node.parameters, infrared: infrared != nil, spots: node.healSpots),
               pipelines.count == names.count else {
@@ -51,21 +73,22 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
             return nil
         }
         let w = input.texture.width, h = input.texture.height
+        var scratch: [TextureLease] = []
+        defer { withExtendedLifetime(scratch) {} }
         func texture(_ format: MTLPixelFormat) -> MTLTexture? {
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: w, height: h, mipmapped: false)
-            d.storageMode = .private
-            d.usage = [.shaderRead, .shaderWrite]
-            return context.device.makeTexture(descriptor: d)
+            guard let lease = context.resources.texture(format: format, width: w, height: h) else { return nil }
+            scratch.append(lease)
+            return lease.texture
         }
-        guard let mask = texture(.r16Float), let output = texture(.rgba32Float),
-              let maskImage = texture(.rgba16Float),
-              let fit = context.device.makeBuffer(length: 16, options: .storageModePrivate),
+        guard let mask = texture(.r16Float),
+              let outputLease = context.resources.texture(format: .rgba32Float, width: w, height: h),
+              let maskLease = context.resources.texture(format: .rgba16Float, width: w, height: h),
+              let fitLease = context.resources.buffer(length: 16),
               let command = context.commandQueue.makeCommandBuffer() else { return nil }
+        defer { withExtendedLifetime(fitLease) {} }
+        let output = outputLease.texture, maskImage = maskLease.texture, fit = fitLease.buffer
         var spotValues = node.healSpots.map { SIMD4<Float>(Float($0.x), Float($0.y), Float($0.radius), 0) }
         if spotValues.isEmpty { spotValues = [.zero] }
-        guard let spots = spotValues.withUnsafeBytes({ bytes in
-            context.device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count)
-        }) else { return nil }
         func encode(_ name: String, textures: [MTLTexture], single: Bool = false) -> Bool {
             guard let pipeline = pipelines[name], let encoder = command.makeComputeCommandEncoder() else { return false }
             encoder.label = name
@@ -73,7 +96,7 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
             for (index, texture) in textures.enumerated() { encoder.setTexture(texture, index: index) }
             encoder.setBytes(&parameters, length: MemoryLayout<DustParameters>.stride, index: 0)
             encoder.setBuffer(fit, offset: 0, index: 1)
-            encoder.setBuffer(spots, offset: 0, index: 2)
+            spotValues.withUnsafeBytes { encoder.setBytes($0.baseAddress!, length: $0.count, index: 2) }
             let width = pipeline.threadExecutionWidth
             encoder.dispatchThreads(MTLSize(width: single ? 1 : w, height: single ? 1 : h, depth: 1),
                 threadsPerThreadgroup: MTLSize(width: single ? 1 : width, height: single ? 1 : 4, depth: 1))
@@ -104,11 +127,19 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
         lastGPUTime = command.gpuEndTime > command.gpuStartTime ? command.gpuEndTime - command.gpuStartTime : nil
         context.log("Dust Removal: \(parameters.flags.x == 1 ? "infrared ratio" : "RGB fallback"), \(node.healSpots.count) manual spots")
         var metadata = input.metadata
+        metadata.dustMaskLease = parameters.controls.z == 1 ? maskLease : nil
         metadata.dustMaskPreview = parameters.controls.z == 1 ? maskImage : nil
         var maskMetadata = input.metadata
         maskMetadata.domain = .unspecified
         maskMetadata.dustMaskPreview = nil
-        return ["Output": ImageData(texture: output, metadata: metadata),
-            "Mask": ImageData(texture: maskImage, metadata: maskMetadata)]
+        maskMetadata.dustMaskLease = nil
+        let outputs = ["Output": ImageData(lease: outputLease, metadata: metadata),
+            "Mask": ImageData(lease: maskLease, metadata: maskMetadata)]
+        let bytes = output.allocatedSize + maskImage.allocatedSize
+        if bytes <= min(768 * 1024 * 1024, Int(context.device.recommendedMaxWorkingSetSize / 2)),
+           context.logger?.isFullResolutionMode != true {
+            cached = (cacheKey, outputs)
+        }
+        return outputs
     }
 }

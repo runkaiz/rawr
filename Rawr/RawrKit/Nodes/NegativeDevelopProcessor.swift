@@ -9,11 +9,7 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
 
     public init(context: ProcessingContext) {
         meter = NegativeMetering(context: context)
-        if let function = context.shaderLibrary?.makeFunction(name: "negativeDevelop") {
-            pipeline = try? context.device.makeComputePipelineState(function: function)
-        } else {
-            pipeline = nil
-        }
+        pipeline = context.resources.pipeline("negativeDevelop")
         super.init(nodeType: .negativeDevelop)
     }
 
@@ -41,13 +37,11 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
         await MainActor.run { context.logger?.negativeStatistics[node.id] = statistics.result }
         var automatic = SIMD4<UInt32>(values["autoBase"] == 1 ? 1 : 0,
             values["autoEndpoints"] == 1 ? 1 : 0, values["autoBalance"] == 1 ? 1 : 0, 0)
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float,
-            width: input.texture.width, height: input.texture.height, mipmapped: false)
-        descriptor.usage = [.shaderRead, .shaderWrite]
-        descriptor.storageMode = .private
-        guard let texture = context.device.makeTexture(descriptor: descriptor),
+        guard let outputLease = context.resources.texture(format: .rgba32Float,
+            width: input.texture.width, height: input.texture.height),
               let command = context.commandQueue.makeCommandBuffer(),
               let encoder = command.makeComputeCommandEncoder() else { return nil }
+        let texture = outputLease.texture
         command.label = "Negative Develop: density, normalize, print"
         encoder.setComputePipelineState(pipeline)
         encoder.setTexture(input.texture, index: 0)
@@ -69,6 +63,6 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
         }
         var metadata = input.metadata
         metadata.domain = .positiveLinear
-        return ["Output": ImageData(texture: texture, metadata: metadata)]
+        return ["Output": ImageData(lease: outputLease, metadata: metadata)]
     }
 }
