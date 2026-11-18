@@ -54,6 +54,10 @@ GPU texture allocation. This preview may differ in fine-grain statistics.
 Full-resolution export rejects an oversized original with guidance to export a
 smaller calibrated linear DNG/TIFF; it never silently exports the preview.
 Four-plane adapter storage currently uses the full-resolution ceiling.
+The source decoder can also retain native-size temporary storage before preview
+scaling. The generated 129 MP case passes with 8 GiB RAM in the Pegasus build VM;
+4 GiB is insufficient even for its 24 MP working preview. The working-preview
+texture cap is not a bound on the decoder's total memory requirement.
 
 The test DNG characterizes dimensions and the float processing/export path;
 it does not establish camera-scanning colorimetry for arbitrary cameras.
