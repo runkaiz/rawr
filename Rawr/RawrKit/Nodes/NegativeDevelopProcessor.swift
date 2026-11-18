@@ -18,19 +18,28 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
     }
 
     override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
+        var values = node.parameters
+        if let roll = node.rollBaseline {
+            guard let url = inputs["Input"]?.metadata.sourceURL,
+                  let effective = roll.parameters(for: url, node: values) else {
+                context.log("Roll baseline is unsupported or source changed; measure the folder again or remove the baseline", level: .error)
+                return nil
+            }
+            values = effective
+        }
         guard let input = inputs["Input"], input.metadata.domain == .linearTransmittance,
               input.texture.pixelFormat == .rgba32Float,
-              var parameters = NegativeDevelopParameters(node.parameters), let pipeline else {
+              var parameters = NegativeDevelopParameters(values), let pipeline else {
             context.log("Negative Develop requires float32 linear input and valid manual calibration", level: .error)
             return nil
         }
-        guard let statistics = await meter.analyze(input, parameters: node.parameters) else {
+        guard let statistics = await meter.analyze(input, parameters: values) else {
             context.log("Negative metering unavailable", level: .error)
             return nil
         }
         await MainActor.run { context.logger?.negativeStatistics[node.id] = statistics.result }
-        var automatic = SIMD4<UInt32>(node.parameters["autoBase"] == 1 ? 1 : 0,
-            node.parameters["autoEndpoints"] == 1 ? 1 : 0, node.parameters["autoBalance"] == 1 ? 1 : 0, 0)
+        var automatic = SIMD4<UInt32>(values["autoBase"] == 1 ? 1 : 0,
+            values["autoEndpoints"] == 1 ? 1 : 0, values["autoBalance"] == 1 ? 1 : 0, 0)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float,
             width: input.texture.width, height: input.texture.height, mipmapped: false)
         descriptor.usage = [.shaderRead, .shaderWrite]

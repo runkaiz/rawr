@@ -7,6 +7,7 @@ struct NodeGraphView: View {
     @Binding var connections: [Connection]
     @Binding var selectedNodeType: NodeType?
     var negativeStatistics: [UUID: NegativeMeteringResult] = [:]
+    var onMeasureRoll: ((UUID) -> Void)? = nil
     var onInputNodeDeleted: (() -> Void)?
     @State private var connectingFrom: (nodeId: UUID, output: String)?
     @State private var currentMousePosition: CGPoint = .zero
@@ -359,11 +360,27 @@ struct NodeGraphView: View {
         return CGPoint(x: x, y: y)
     }
 
+    private func selectedRollFrame(_ node: NodeData) -> String? {
+        guard let roll = node.rollBaseline,
+              let edge = connections.first(where: { $0.toNodeId == node.id }),
+              let source = nodes.first(where: { $0.id == edge.fromNodeId && $0.type == .folderInput }),
+              let index = source.parameters["selectedIndex"], index.isFinite,
+              index >= 0, index < Double(roll.frames.count) else { return nil }
+        return roll.frames[Int(index)].name
+    }
+
     @ViewBuilder
     private func nodeView(for node: NodeData) -> some View {
         NodeView(
             node: node,
             negativeStatistics: negativeStatistics[node.id],
+            rollFrameName: selectedRollFrame(node),
+            onCustomAction: { action, value in
+                if action == "measureRoll" { onMeasureRoll?(node.id) }
+                if action == "setRoll", let index = nodes.firstIndex(where: { $0.id == node.id }) {
+                    nodes[index].rollBaseline = value as? RollBaseline
+                }
+            },
             onConnectOutput: { output in
                 connectingFrom = (node.id, output)
             },

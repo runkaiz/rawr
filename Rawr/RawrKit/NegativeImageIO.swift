@@ -64,6 +64,7 @@ enum NegativeImageIO {
         guard command.status == .completed else { throw ImageDecoder.DecodeError.invalidImage }
         var metadata = ImageMetadata(width: texture.width, height: texture.height, colorSpace: colorSpace)
         metadata.domain = .linearTransmittance
+        metadata.sourceURL = url
         return ImageData(texture: texture, metadata: metadata)
     }
 

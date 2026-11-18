@@ -17,6 +17,7 @@ public protocol NodeUIComponent {
 public struct NodeUIContext {
     /// Callback to update node parameters
     var negativeStatistics: NegativeMeteringResult? = nil
+    var rollFrameName: String? = nil
 
     public let onParameterChange: ([String: Double]) -> Void
 

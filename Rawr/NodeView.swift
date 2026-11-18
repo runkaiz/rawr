@@ -29,6 +29,8 @@ struct OutputDotPositionKey: PreferenceKey {
 struct NodeView: View {
     let node: NodeData
     var negativeStatistics: NegativeMeteringResult? = nil
+    var rollFrameName: String? = nil
+    var onCustomAction: ((String, Any?) -> Void)? = nil
     let onConnectOutput: (String) -> Void
     let onConnectInput: (String) -> Void
     let onImageSelect: ((URL) -> Void)?
@@ -46,8 +48,9 @@ struct NodeView: View {
     @State private var isDragging: Bool = false
 
     private var uiContext: NodeUIContext {
-        var context = NodeUIContext(onParameterChange: onParameterChange, onImageSelect: onImageSelect)
+        var context = NodeUIContext(onParameterChange: onParameterChange, onImageSelect: onImageSelect, onCustomAction: onCustomAction)
         context.negativeStatistics = negativeStatistics
+        context.rollFrameName = rollFrameName
         return context
     }
 
