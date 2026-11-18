@@ -10,8 +10,10 @@ private struct CropTransform {
     var rect: SIMD4<Float>
     var rotation: SIMD4<Float>
     init(_ geometry: CropGeometry) {
-        rect = SIMD4(Float(geometry.centerX), Float(geometry.centerY), Float(geometry.width), Float(geometry.height))
-        rotation = SIMD4(Float(geometry.degrees * .pi / 180), 0, 0, 0)
+        // Core Image's Metal textures have a bottom-left origin. Documents and
+        // the crop controls use top-left coordinates and clockwise degrees.
+        rect = SIMD4(Float(geometry.centerX), Float(1 - geometry.centerY), Float(geometry.width), Float(geometry.height))
+        rotation = SIMD4(Float(-geometry.degrees * .pi / 180), 0, 0, 0)
     }
 }
 
@@ -68,8 +70,8 @@ actor AutoCropDetector {
         let dx = Double((bounds.x + bounds.y) / 2 - 0.5) * Double(width)
         let dy = Double((bounds.z + bounds.w) / 2 - 0.5) * Double(height)
         var geometry = CropGeometry(centerX: 0.5 + (cos(angle) * dx - sin(angle) * dy) / Double(width),
-            centerY: 0.5 + (sin(angle) * dx + cos(angle) * dy) / Double(height),
-            width: Double(bounds.y - bounds.x), height: Double(bounds.w - bounds.z), degrees: degrees)
+            centerY: 0.5 - (sin(angle) * dx + cos(angle) * dy) / Double(height),
+            width: Double(bounds.y - bounds.x), height: Double(bounds.w - bounds.z), degrees: -degrees)
         var confidence = Double(candidate.quality.y)
         if !geometry.isValid(width: width, height: height) || abs(degrees) == 8 { confidence = 0 }
         let raw = geometry
@@ -124,14 +126,16 @@ public final class AutoCropProcessor: MetalNodeProcessor {
         }
         let settings = node.autoCrop ?? AutoCropSettings()
         if settings.rollSize != nil && !result.accepted {
-            await MainActor.run { context.logger?.cropResults[node.id] = result }
+            let report = result
+            await MainActor.run { context.logger?.cropResults[node.id] = report }
             context.log("Auto Crop: uncertain roll frame; review its borders before batch export", level: .error)
             return nil
         }
         let proposal = result.accepted ? result.proposal : CropGeometry()
         let geometry = settings.geometry(proposal: proposal, source: result.source, sourceWidth: result.sourceWidth, sourceHeight: result.sourceHeight)
         result.applied = geometry
-        await MainActor.run { context.logger?.cropResults[node.id] = result }
+        let report = result
+        await MainActor.run { context.logger?.cropResults[node.id] = report }
         guard geometry.isValid(width: input.texture.width, height: input.texture.height) else {
             context.log("Auto Crop: rectangle extends outside the scan; adjust size, center or rotation", level: .error)
             return nil

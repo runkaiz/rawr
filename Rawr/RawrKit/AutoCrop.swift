@@ -1,7 +1,7 @@
 import Foundation
 
-/// Coordinates are fractions of the oriented source; Y increases downwards in
-/// texture space. Rotation is clockwise in source pixels, not normalized space.
+/// Coordinates are fractions of the oriented source with a top-left origin.
+/// Rotation is clockwise in source pixels, not normalized space.
 public struct CropGeometry: Codable, Equatable, Hashable, Sendable {
     public var centerX: Double = 0.5
     public var centerY: Double = 0.5

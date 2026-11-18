@@ -24,7 +24,9 @@ struct AutoCropTests {
         var pixels = [SIMD4<Float>](repeating: .zero, count: w*h)
         for y in 0..<h {
             for x in 0..<w {
-                let px = Double(x) + 0.5 - centerX * Double(w), py = Double(y) + 0.5 - Double(h)/2
+                // Define ground truth in visible top-left coordinates; raw
+                // Metal rows from Core Image run in the opposite Y direction.
+                let px = Double(x) + 0.5 - centerX * Double(w), py = Double(h) - Double(y) - 0.5 - Double(h)/2
                 let u = (cos(a)*px + sin(a)*py)/Double(w)
                 let v = (-sin(a)*px + cos(a)*py)/Double(h)
                 var rgb = SIMD3<Float>(0.8,0.4,0.2)
@@ -164,7 +166,7 @@ struct AutoCropTests {
         for y in stride(from: 5,to: height-5,by: 17) {
             for x in stride(from: 5,to: width-5,by: 19) {
                 let u = (Double(x)+0.5)/Double(width)*0.6-0.3
-                let v = (Double(y)+0.5)/Double(height)*0.45-0.225
+                let v = (0.5-(Double(y)+0.5)/Double(height))*0.45
                 let t = Float(0.16+0.30*(u+0.36)/0.72+0.05*sin(v*18))
                 let expected = SIMD4<Float>(0.8*t,0.4*t,0.2*t,1)
                 for c in 0..<4 { error=max(error,abs(pixels[y*width+x][c]-expected[c])) }
