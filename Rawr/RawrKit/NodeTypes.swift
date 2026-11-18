@@ -63,6 +63,7 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
             self.inputs = ["Input"]
             self.outputs = ["Output"]
             self.parameters = NegativeDevelopParameters.defaults
+            self.parameters.merge(["autoBase": 1, "autoEndpoints": 1, "autoBalance": 1]) { _, new in new }
         case .inversion:
             self.inputs = ["Input"]
             self.outputs = ["Output"]

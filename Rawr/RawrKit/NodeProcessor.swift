@@ -4,11 +4,13 @@ import CoreImage
 
 /// Runtime representation of image data flowing through the graph
 public struct ImageData {
+    public let contentID: UUID
     public let texture: MTLTexture
     public let cgImage: CGImage?
     public let metadata: ImageMetadata
 
-    public init(texture: MTLTexture, cgImage: CGImage? = nil, metadata: ImageMetadata = ImageMetadata()) {
+    public init(texture: MTLTexture, cgImage: CGImage? = nil, metadata: ImageMetadata = ImageMetadata(), contentID: UUID = UUID()) {
+        self.contentID = contentID
         self.texture = texture
         self.cgImage = cgImage
         self.metadata = metadata

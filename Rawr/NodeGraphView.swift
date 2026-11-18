@@ -6,6 +6,7 @@ struct NodeGraphView: View {
     @Binding var nodes: [NodeData]
     @Binding var connections: [Connection]
     @Binding var selectedNodeType: NodeType?
+    var negativeStatistics: [UUID: NegativeMeteringResult] = [:]
     var onInputNodeDeleted: (() -> Void)?
     @State private var connectingFrom: (nodeId: UUID, output: String)?
     @State private var currentMousePosition: CGPoint = .zero
@@ -362,6 +363,7 @@ struct NodeGraphView: View {
     private func nodeView(for node: NodeData) -> some View {
         NodeView(
             node: node,
+            negativeStatistics: negativeStatistics[node.id],
             onConnectOutput: { output in
                 connectingFrom = (node.id, output)
             },

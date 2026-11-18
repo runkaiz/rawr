@@ -6,6 +6,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 public class RawrKit: ObservableObject {
+    @Published var negativeStatistics: [UUID: NegativeMeteringResult] = [:]
     @Published public var isProcessing = false
     @Published public var logs: [LogEntry] = []
     @Published public var performance: PerformanceMetrics = PerformanceMetrics()
@@ -34,6 +35,13 @@ public class RawrKit: ObservableObject {
     private var cachedSourceImage: CGImage?
     private var cachedSourceURL: URL?
     private var negativeSourceTexture: MTLTexture?
+    private struct NegativeSourceKey: Equatable {
+        let url: URL
+        let modified: Date?
+        let size: UInt64?
+        let inode: UInt64?
+    }
+    private var negativeSourceCache: (key: NegativeSourceKey, image: ImageData)?
 
     public init() {
         self.device = MTLCreateSystemDefaultDevice()
@@ -334,7 +342,19 @@ public class RawrKit: ObservableObject {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            // Full-frame decode is shared by preview and export. File replacement,
+            // edits, source selection, and explicit cache clearing change identity.
+            let key = NegativeSourceKey(url: url.standardizedFileURL,
+                modified: attributes[.modificationDate] as? Date,
+                size: (attributes[.size] as? NSNumber)?.uint64Value,
+                inode: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value)
+            if let cached = negativeSourceCache, cached.key == key {
+                negativeSourceTexture = cached.image.texture
+                return cached.image
+            }
             let image = try NegativeImageIO.load(url: url, context: context)
+            negativeSourceCache = (key, image)
             negativeSourceTexture = image.texture
             return image
         } catch {
@@ -414,6 +434,8 @@ public class RawrKit: ObservableObject {
 
     /// Clear the source image cache (call when image URL changes)
     public func clearSourceImageCache() {
+        negativeSourceCache = nil
+        negativeStatistics = [:]
         cachedSourceImage = nil
         cachedSourceURL = nil
         log("Source image cache cleared")

@@ -4,9 +4,11 @@ import Metal
 /// Fused density, per-layer normalization and positive print response.
 /// The only image output is a GPU texture; Preview/Export owns readback.
 public final class NegativeDevelopProcessor: MetalNodeProcessor {
+    private let meter: NegativeMetering
     private let pipeline: MTLComputePipelineState?
 
     public init(context: ProcessingContext) {
+        meter = NegativeMetering(context: context)
         if let function = context.shaderLibrary?.makeFunction(name: "negativeDevelop") {
             pipeline = try? context.device.makeComputePipelineState(function: function)
         } else {
@@ -22,6 +24,13 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
             context.log("Negative Develop requires float32 linear input and valid manual calibration", level: .error)
             return nil
         }
+        guard let statistics = await meter.analyze(input, parameters: node.parameters) else {
+            context.log("Negative metering unavailable", level: .error)
+            return nil
+        }
+        await MainActor.run { context.logger?.negativeStatistics[node.id] = statistics.result }
+        var automatic = SIMD4<UInt32>(node.parameters["autoBase"] == 1 ? 1 : 0,
+            node.parameters["autoEndpoints"] == 1 ? 1 : 0, node.parameters["autoBalance"] == 1 ? 1 : 0, 0)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float,
             width: input.texture.width, height: input.texture.height, mipmapped: false)
         descriptor.usage = [.shaderRead, .shaderWrite]
@@ -34,6 +43,8 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
         encoder.setTexture(input.texture, index: 0)
         encoder.setTexture(texture, index: 1)
         encoder.setBytes(&parameters, length: MemoryLayout<NegativeDevelopParameters>.stride, index: 0)
+        encoder.setBuffer(statistics.buffer, offset: 0, index: 1)
+        encoder.setBytes(&automatic, length: MemoryLayout<SIMD4<UInt32>>.stride, index: 2)
         let width = pipeline.threadExecutionWidth
         let height = min(8, pipeline.maxTotalThreadsPerThreadgroup / width)
         encoder.dispatchThreads(MTLSize(width: texture.width, height: texture.height, depth: 1),
