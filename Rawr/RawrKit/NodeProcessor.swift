@@ -165,31 +165,14 @@ open class MetalNodeProcessor: NodeProcessor {
         return texture
     }
 
-    /// Create a CGImage from a Metal texture
-    public func createCGImage(from texture: MTLTexture) -> CGImage? {
-        let width = texture.width
-        let height = texture.height
-        let bytesPerRow = width * 8
-
-        var pixelData = [UInt16](repeating: 0, count: width * height * 4)
-
-        let region = MTLRegionMake2D(0, 0, width, height)
-        texture.getBytes(&pixelData, bytesPerRow: bytesPerRow, from: region, mipmapLevel: 0)
-
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB),
-              let context = CGContext(
-                data: &pixelData,
-                width: width,
-                height: height,
-                bitsPerComponent: 16,
-                bytesPerRow: bytesPerRow,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
-              ),
-              let cgImage = context.makeImage() else {
-            return nil
-        }
-
-        return cgImage
+    /// Explicit CPU boundary for callers outside graph execution. Core Image
+    /// supports private textures and both float formats without reinterpreting
+    /// float32 bytes as half floats. Pass a reusable context when calling often.
+    public func createCGImage(from texture: MTLTexture, context: CIContext? = nil) -> CGImage? {
+        let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
+        guard let image = CIImage(mtlTexture: texture, options: [.colorSpace: colorSpace]) else { return nil }
+        let renderer = context ?? CIContext(mtlDevice: texture.device)
+        return renderer.createCGImage(image, from: image.extent,
+            format: texture.pixelFormat == .rgba32Float ? .RGBAf : .RGBAh, colorSpace: colorSpace)
     }
 }

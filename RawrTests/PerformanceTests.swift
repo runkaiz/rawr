@@ -112,6 +112,10 @@ struct PerformanceTests {
             #expect(output.cgImage == nil)
             #expect(output.texture.storageMode == .private)
             #expect(!output.textureLeases.isEmpty)
+            let boundary = try #require(MetalNodeProcessor(nodeType: node.type).createCGImage(
+                from: output.texture, context: context.linearCIContext))
+            #expect(boundary.width == image.texture.width)
+            #expect(boundary.bitsPerComponent == 32)
         }
     }
 
