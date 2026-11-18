@@ -14,10 +14,13 @@ struct PipelineBenchmark {
         let events: [PipelineTrace.Event]
         let peakRSSBytes: Int
         let metalBytes: Int
+        let batchWorkers: Int?
     }
     struct Report: Codable {
         var schema = 1
         let device: String
+        let recommendedWorkingSetBytes: UInt64
+        let physicalMemoryBytes: UInt64
         let os: String
         let width: Int
         let height: Int
@@ -68,8 +71,11 @@ struct PipelineBenchmark {
             let elapsed = ProcessInfo.processInfo.systemUptime - start
             var usage = rusage()
             getrusage(RUSAGE_SELF, &usage)
+            let workerMessage = kit.logs.last { $0.message.hasPrefix("Batch workers:") }?.message
+            let workerCount = workerMessage.flatMap { $0.split(separator: " ").dropFirst(2).first }.flatMap { Int($0) }
             samples.append(Sample(scenario: name, seconds: elapsed, events: context.trace.drain(),
-                peakRSSBytes: Int(usage.ru_maxrss), metalBytes: context.device.currentAllocatedSize))
+                peakRSSBytes: Int(usage.ru_maxrss), metalBytes: context.device.currentAllocatedSize,
+                batchWorkers: name == "roll-export" ? workerCount : nil))
             print("\(name): \(elapsed) seconds")
             fflush(stdout)
         }
@@ -97,7 +103,9 @@ struct PipelineBenchmark {
                 await kit.measureRoll(calibration, nodeID: calibration.nodes[1].id) != nil
             }
         }
-        let report = Report(device: context.device.name, os: ProcessInfo.processInfo.operatingSystemVersionString,
+        let report = Report(device: context.device.name,
+            recommendedWorkingSetBytes: context.device.recommendedMaxWorkingSetSize,
+            physicalMemoryBytes: ProcessInfo.processInfo.physicalMemory, os: ProcessInfo.processInfo.operatingSystemVersionString,
             width: width, height: height, frames: frames, samples: samples)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
