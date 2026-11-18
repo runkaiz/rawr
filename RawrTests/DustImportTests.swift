@@ -138,7 +138,7 @@ struct DustImportTests {
         }
         let rgb=try texture(.rgba32Float), ir=try texture(.r32Float)
         let fixture=try #require(ctx.shaderLibrary?.makeFunction(name:"dustBenchmarkFixture"))
-        let pipeline=try ctx.device.makeComputePipelineState(function:fixture)
+        let pipeline=try await ctx.device.makeComputePipelineState(function:fixture)
         let command=try #require(ctx.commandQueue.makeCommandBuffer()), encoder=try #require(command.makeComputeCommandEncoder())
         encoder.setComputePipelineState(pipeline); encoder.setTexture(rgb,index:0); encoder.setTexture(ir,index:1)
         encoder.dispatchThreads(MTLSize(width:w,height:h,depth:1),threadsPerThreadgroup:MTLSize(width:32,height:4,depth:1))

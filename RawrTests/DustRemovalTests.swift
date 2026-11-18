@@ -169,8 +169,10 @@ struct DustRemovalTests {
         node.healSpots = [HealSpot(x: 0.25, y: 0.4, radius: 0.01)]
         let output = try #require(await DustRemovalProcessor(context: ctx).process(inputs: ["Input": image(source)], node: node, context: ctx))
         let before = try #require(NegativeImageIO.boundaryImage(source, context: ctx.linearCIContext))
-        let after = try #require(NegativeImageIO.boundaryImage(try #require(output["Output"]).texture, context: ctx.linearCIContext))
-        let mask = try #require(NegativeImageIO.boundaryImage(try #require(output["Mask"]).texture, context: ctx.linearCIContext))
+        let resultTexture = try #require(output["Output"]).texture
+        let maskTexture = try #require(output["Mask"]).texture
+        let after = try #require(NegativeImageIO.boundaryImage(resultTexture, context: ctx.linearCIContext))
+        let mask = try #require(NegativeImageIO.boundaryImage(maskTexture, context: ctx.linearCIContext))
         let view = HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading) {
                 Label("Dust Removal", systemImage: node.type.icon).font(.headline)
