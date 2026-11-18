@@ -11,6 +11,8 @@ public class PreviewProcessor: MetalNodeProcessor {
     }
 
     override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
+        let stageStart = ProcessInfo.processInfo.systemUptime
+        defer { context.trace.record("preview", since: stageStart, device: context.device) }
         guard let inputData = inputs["Input"] else {
             context.log("No input image for preview", level: .warning)
             return nil

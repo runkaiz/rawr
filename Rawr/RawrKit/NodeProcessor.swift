@@ -67,6 +67,7 @@ public class ProcessingContext {
     public let linearCIContext: CIContext
     public let shaderLibrary: MTLLibrary?
     public weak var logger: RawrKit?
+    let trace = PipelineTrace()
     var negativeInputIDs: Set<UUID> = []
 
     public init(device: MTLDevice, commandQueue: MTLCommandQueue, ciContext: CIContext, logger: RawrKit? = nil) {

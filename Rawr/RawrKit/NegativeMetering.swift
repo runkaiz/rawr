@@ -74,6 +74,7 @@ actor NegativeMetering {
     }
 
     func analyze(_ input: ImageData, parameters: [String: Double]) async -> NegativeMeteringOutput? {
+        let stageStart = ProcessInfo.processInfo.systemUptime
         guard let manual = NegativeDevelopParameters(parameters), pipelines.count == 6 else { return nil }
         let autoBase = parameters["autoBase"] == 1
         let key = Key(source: input.contentID, base: autoBase ? .zero : manual.base)
@@ -138,6 +139,7 @@ actor NegativeMetering {
         }) else { return nil }
         command.commit()
         await command.completed()
+        context.trace.record("metering", since: stageStart, device: context.device, command: command)
         guard command.status == .completed else {
             context.log("Negative metering GPU failed: \(command.error?.localizedDescription ?? "unknown")", level: .error)
             return nil

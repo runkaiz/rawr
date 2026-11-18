@@ -21,6 +21,7 @@ public class GammaProcessor: MetalNodeProcessor {
     }
 
     override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
+        let stageStart = ProcessInfo.processInfo.systemUptime
         guard let inputData = inputs["Input"] else {
             context.log("No input image for gamma correction", level: .error)
             return nil
@@ -72,6 +73,7 @@ public class GammaProcessor: MetalNodeProcessor {
         computeEncoder.endEncoding()
         commandBuffer.commit()
         await commandBuffer.completed()
+        context.trace.record(node.type.rawValue, since: stageStart, device: context.device, command: commandBuffer)
 
         // Convert output texture to CGImage
         guard let cgImage = createCGImage(from: outputTexture) else {

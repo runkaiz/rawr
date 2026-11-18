@@ -19,6 +19,7 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
 
     override public func process(inputs: [String: ImageData], node: NodeData, context: ProcessingContext) async -> [String: ImageData]? {
         lastGPUTime = nil
+        let stageStart = ProcessInfo.processInfo.systemUptime
         guard let input = inputs["Input"], input.metadata.domain == .linearTransmittance,
               input.texture.pixelFormat == .rgba32Float else {
             context.log("Dust Removal requires a linear source before Negative Develop", level: .error)
@@ -95,6 +96,7 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
         command.label = "Dust Removal: \(parameters.flags.x == 1 ? "infrared" : "optical")"
         command.commit()
         await command.completed()
+        context.trace.record(node.type.rawValue, since: stageStart, device: context.device, command: command)
         guard command.status == .completed else {
             context.log("Dust Removal GPU failed: \(command.error?.localizedDescription ?? "unknown")", level: .error)
             return nil

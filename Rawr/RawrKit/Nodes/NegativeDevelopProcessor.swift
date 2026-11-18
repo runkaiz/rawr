@@ -27,6 +27,7 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
             }
             values = effective
         }
+        let stageStart = ProcessInfo.processInfo.systemUptime
         guard let input = inputs["Input"], input.metadata.domain == .linearTransmittance,
               input.texture.pixelFormat == .rgba32Float,
               var parameters = NegativeDevelopParameters(values), let pipeline else {
@@ -61,6 +62,7 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
         encoder.endEncoding()
         command.commit()
         await command.completed()
+        context.trace.record(node.type.rawValue, since: stageStart, device: context.device, command: command)
         guard command.status == .completed else {
             context.log("Negative Develop GPU failed: \(command.error?.localizedDescription ?? "unknown error")", level: .error)
             return nil

@@ -729,6 +729,8 @@ public class RawrKit: ObservableObject {
     }
 
     private func saveImage(_ image: CGImage, to url: URL, format: ExportFormat, replaceExisting: Bool = true) async -> Bool {
+        let stageStart = ProcessInfo.processInfo.systemUptime
+        defer { if let device { processingContext?.trace.record("export", since: stageStart, device: device) } }
         let temporary = url.deletingLastPathComponent().appendingPathComponent(".rawr-\(UUID().uuidString).tmp")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let destination = CGImageDestinationCreateWithURL(temporary as CFURL, format.utType.identifier as CFString, 1, nil)
