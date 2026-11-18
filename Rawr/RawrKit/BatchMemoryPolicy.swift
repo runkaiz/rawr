@@ -29,7 +29,7 @@ enum BatchMemoryPolicy {
         // Additional full-resolution graph branches/effects increase live memory.
         let effects = graph.nodes.filter { $0.type != .imageInput && $0.type != .folderInput && $0.type != .preview }.count
         let adjusted = maximum * UInt64(max(1, effects)) / 2
-        return workers(pixels: max(maximum, adjusted), recommendedBytes: device.recommendedMaxWorkingSetSize,
-            physicalBytes: ProcessInfo.processInfo.physicalMemory)
+        return min(max(1, urls.count), workers(pixels: max(maximum, adjusted), recommendedBytes: device.recommendedMaxWorkingSetSize,
+            physicalBytes: ProcessInfo.processInfo.physicalMemory))
     }
 }
