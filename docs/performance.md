@@ -6,7 +6,9 @@ display-sized image at the terminal boundary; GPU-only export passes the texture
 directly to Core Image's file writer. The Before image is reused until its source
 or preview size changes. Negative Develop still evaluates the full-resolution
 source before preview resampling, so local dust supports and global metering do
-not change with the preview size.
+not change with the preview size. Slider requests coalesce pending graph edits;
+only the latest pending edit renders. Explicit graph execution and export retain
+their FIFO result semantics, and superseded UI requests are not reported as errors.
 
 ## Resource ownership and memory
 

@@ -25,6 +25,7 @@ public class RawrKit: ObservableObject {
     private var graphExecutor: GraphExecutor?
     var processingContext: ProcessingContext?
     @MainActor private var operationTask: Task<Void, Never>?
+    @MainActor private var previewGeneration: UInt64 = 0
     @MainActor private var operations: [(operation: @MainActor () async -> Bool, completion: CheckedContinuation<Bool, Never>)] = []
 
     // Internal storage for full resolution images (legacy support)
@@ -241,6 +242,22 @@ public class RawrKit: ObservableObject {
     @MainActor
     public func executeGraph(_ nodeGraph: NodeGraph) async -> Bool {
         await enqueue { await self.executePreview(nodeGraph) }
+    }
+
+    public enum PreviewRequestResult { case rendered, superseded, failed }
+
+    /// Slider requests keep only the newest pending render. Explicit executeGraph
+    /// and export callers retain their FIFO completion/result contract.
+    @MainActor
+    public func executeInteractivePreview(_ nodeGraph: NodeGraph) async -> PreviewRequestResult {
+        previewGeneration &+= 1
+        let generation = previewGeneration
+        let success = await enqueue {
+            guard generation == self.previewGeneration else { return false }
+            return await self.executePreview(nodeGraph)
+        }
+        if generation != previewGeneration { return .superseded }
+        return success ? .rendered : .failed
     }
 
     @MainActor

@@ -514,8 +514,8 @@ struct PreviewSectionView: View {
         }
 
         Task {
-            let success = await rawrKit.executeGraph(nodeGraph)
-            if !success {
+            let result = await rawrKit.executeInteractivePreview(nodeGraph)
+            if case .failed = result {
                 rawrKit.log("Graph execution failed", level: .error)
                 rawrKit.clearProcessedPreview()
             }

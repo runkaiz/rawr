@@ -181,6 +181,48 @@ struct PerformanceTests {
         #expect(abs(pixel.z - 0.5) < 0.003)
     }
 
+    @MainActor
+    @Test func `Interactive slider bursts render only the latest pending graph`() async throws {
+        let context = try context()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("source.tiff")
+        try PipelineFixture.write(url, width: 64, context: context)
+        var input = NodeData(type: .imageInput, position: .zero)
+        input.imageURL = url
+        let preview = NodeData(type: .preview, position: .zero)
+        let graph = NodeGraph(nodes: [input, preview], connections: [
+            Connection(fromNodeId: input.id, fromOutput: "Image", toNodeId: preview.id, toInput: "Input")
+        ])
+        let kit = RawrKit()
+        var unblock: CheckedContinuation<Void, Never>?
+        let blocker = Task { await kit.enqueue {
+            await withCheckedContinuation { unblock = $0 }
+            return true
+        } }
+        while unblock == nil { await Task.yield() }
+        var submitted = 0
+        let requests = (0..<8).map { _ in Task { @MainActor in
+            submitted += 1
+            return await kit.executeInteractivePreview(graph)
+        } }
+        while submitted < requests.count { await Task.yield() }
+        unblock?.resume()
+        _ = await blocker.value
+        var rendered = 0, superseded = 0
+        for request in requests {
+            switch await request.value {
+            case .rendered: rendered += 1
+            case .superseded: superseded += 1
+            case .failed: Issue.record("The current preview failed")
+            }
+        }
+        #expect(rendered == 1)
+        #expect(superseded == 7)
+        #expect(kit.processedPreviewImage?.width == 64)
+    }
+
     @Test func `Replacing an infrared file invalidates cached dust output`() async throws {
         let context = try context()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
