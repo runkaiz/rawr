@@ -156,9 +156,10 @@ struct PerformanceTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("linear.tiff")
         let colorSpace = CGColorSpace(name: CGColorSpace.linearSRGB)!
-        let image = CIImage(color: CIColor(red: 0.75, green: 0.5, blue: 0.25, colorSpace: colorSpace))
+        let color = try #require(CIColor(red: 0.75, green: 0.5, blue: 0.25, colorSpace: colorSpace))
+        let image = CIImage(color: color)
             .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
-        try context.linearCIContext.writeTIFFRepresentation(of: image, to: url, format: .RGBAh, colorSpace: colorSpace)
+        try context.linearCIContext.writeTIFFRepresentation(of: image, to: url, format: .RGBAh, colorSpace: colorSpace, options: [:])
         var source = NodeData(type: .imageInput, position: .zero)
         source.imageURL = url
         var exposure = NodeData(type: .exposure, position: .zero)
