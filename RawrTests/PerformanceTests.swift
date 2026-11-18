@@ -303,6 +303,36 @@ struct PerformanceTests {
     }
 
     @MainActor
+    @Test func `Export reuses native film sources while preserving full image dimensions`() async throws {
+        let kit = RawrKit()
+        let context = try #require(kit.processingContext)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let input = root.appendingPathComponent("negative.tiff")
+        try PipelineFixture.write(input, width: 64, context: context)
+        var source = NodeData(type: .imageInput, position: .zero)
+        source.imageURL = input
+        let develop = NodeData(type: .negativeDevelop, position: .zero)
+        let preview = NodeData(type: .preview, position: .zero)
+        let graph = NodeGraph(nodes: [source, develop, preview], connections: [
+            Connection(fromNodeId: source.id, fromOutput: "Image", toNodeId: develop.id, toInput: "Input"),
+            Connection(fromNodeId: develop.id, fromOutput: "Output", toNodeId: preview.id, toInput: "Input")
+        ])
+        kit.maxPreviewDimension = 16
+        try #require(await kit.executeGraph(graph))
+        let before = try #require(kit.loadNegativeSource(at: input, context: context))
+        #expect(kit.processedPreviewImage?.width == 16)
+        let output = root.appendingPathComponent("positive.tiff")
+        try #require(await kit.exportImage(graph, to: output))
+        let after = try #require(kit.loadNegativeSource(at: input, context: context))
+        #expect(after.contentID == before.contentID)
+        let exported = try ImageDecoder(context: context.linearCIContext).decode(url: output)
+        #expect(exported.width == 64 && exported.height == 32)
+        #expect(!kit.isFullResolutionMode)
+    }
+
+    @MainActor
     @Test(arguments: [false, true])
     func `Streamed legacy TIFF export preserves values above display white`(negative: Bool) async throws {
         let context = try context()

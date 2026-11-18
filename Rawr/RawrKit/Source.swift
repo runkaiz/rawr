@@ -598,13 +598,17 @@ public class RawrKit: ObservableObject {
         log("Starting full resolution export to: \(url.lastPathComponent)")
 
         // Switch to full resolution mode
+        // Film sources and cleanup already run at native resolution in preview.
+        // Their file-identity checks remain active, so export can reuse those
+        // immutable GPU results. Legacy preview inputs still require a reload.
+        let nativeSources = nodeGraph.nodes.contains { $0.type == .negativeDevelop || $0.type == .dustRemoval }
         isFullResolutionMode = true
-        clearSourceImageCache() // Clear cache to force full-res reload
+        if !nativeSources { clearSourceImageCache() }
 
         defer {
             // Switch back to preview mode
             isFullResolutionMode = false
-            clearSourceImageCache() // Clear cache to reload preview resolution
+            if !nativeSources { clearSourceImageCache() }
         }
 
         // Execute graph at full resolution
@@ -613,8 +617,7 @@ public class RawrKit: ObservableObject {
             return false
         }
 
-        // Clear cache to ensure full resolution processing
-        await executor.clearCache()
+        if !nativeSources { await executor.clearCache() }
 
         let result = await Task.detached {
             await executor.execute(nodeGraph: nodeGraph)

@@ -38,6 +38,10 @@ reference, including ghost correction, manual repairs, seams and image edges.
 The executor releases an ancestor after its final reachable consumer completes,
 and serializes requests even when callers invoke its actor concurrently. Source
 uploads are reused by URL, modification time, size, inode and resolution mode.
+Single-image export retains native-resolution film sources and cleanup from the
+preview, revalidating their identities instead of decoding the same scan again.
+Legacy scaled inputs still reload at full resolution; roll export releases the
+editor caches before starting its separate workers.
 Dust results are reused by source content identity, controls, repair spots and
 the external IR file identity. Canvas placement has no effect on that cache.
 The dust cache retains one result, capped at 768 MiB or half the recommended
