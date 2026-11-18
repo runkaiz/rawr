@@ -106,6 +106,11 @@ struct DustRemovalTests {
         #expect(mask[index].x > 0.9)
         #expect(abs(pixels[index].x - clean[index].x) < 0.03)
         #expect(mask.enumerated().filter { $0.offset != index && $0.element.x > 0 }.isEmpty)
+        node.parameters["irGhost"] = 0
+        let ghosted = try #require(await processor.process(inputs: ["Input": image(rgb, infrared: infrared)], node: node, context: ctx))
+        let ghostedMask = try await read(try #require(ghosted["Mask"]).texture, context: ctx)
+        #expect(ghostedMask[48 * w + 63].x > 0.5, "Without correction the visible edge contaminates the IR ratio")
+        node.parameters["irGhost"] = 1
         node.parameters["useIR"] = 0
         let optical = try #require(await processor.process(inputs: ["Input": image(rgb, infrared: infrared)], node: node, context: ctx))
         let fallback = try #require(await processor.process(inputs: ["Input": image(rgb)], node: node, context: ctx))
