@@ -48,11 +48,13 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
         guard isSupported, url.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path,
               let frame = frames.first(where: { $0.name == url.lastPathComponent }), frame.matches(url) else { return nil }
         var result = node
+        result["rollRelativeDensity"] = frame.optOut ? 0 : 1
         if !frame.optOut {
             for group in ["Base", "Endpoints", "Balance"] where node["auto" + group] == 1 {
                 guard calibration["auto" + group] != 1 else { continue }
                 for key in Self.keys(group) { result[key] = calibration[key] }
                 result["auto" + group] = 0
+                if group == "Base" { result["meterBaseConfidence"] = Double(confidence) }
             }
             // Density alignment precedes print exposure. Excluded frames receive
             // the baseline without an unreliable automatic alignment.
@@ -108,6 +110,29 @@ struct RollReduction {
     let statistics: NegativeMeteringResult
     let frames: [SIMD4<Float>]
     let gpuSeconds: Double
+
+    /// Base is a roll-wide calibration group. A validated strip may live in a
+    /// different frame from the three or more scenes supporting the endpoints.
+    static func baseReference(_ summaries: [NegativeMeteringResult], context: ProcessingContext) async -> SIMD4<Float>? {
+        guard !summaries.isEmpty, summaries.count <= 4096,
+              let pipeline = context.resources.pipeline("negativeRollBase"),
+              let input = summaries.withUnsafeBytes({ bytes in
+                  context.device.makeBuffer(bytes:bytes.baseAddress!,length:bytes.count,options:.storageModeShared)
+              }),
+              let scratch = context.device.makeBuffer(length:summaries.count*4,options:.storageModePrivate),
+              let flags = context.device.makeBuffer(length:summaries.count*4,options:.storageModePrivate),
+              let output = context.device.makeBuffer(length:16,options:.storageModeShared),
+              let command = context.commandQueue.makeCommandBuffer(),
+              let encoder = command.makeComputeCommandEncoder() else { return nil }
+        var count = UInt32(summaries.count)
+        encoder.setComputePipelineState(pipeline)
+        for (i,b) in [input,scratch,flags,output].enumerated() { encoder.setBuffer(b,offset:0,index:i) }
+        encoder.setBytes(&count,length:4,index:4)
+        encoder.dispatchThreads(MTLSize(width:1,height:1,depth:1),threadsPerThreadgroup:MTLSize(width:1,height:1,depth:1))
+        encoder.endEncoding();command.commit();await command.completed()
+        guard command.status == .completed else { return nil }
+        return output.contents().load(as:SIMD4<Float>.self)
+    }
 
     static func reduce(_ summaries: [NegativeMeteringResult], context: ProcessingContext) async -> RollReduction? {
         let start = ProcessInfo.processInfo.systemUptime

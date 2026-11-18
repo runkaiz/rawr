@@ -13,9 +13,9 @@ kernel void rollTestFixture(texture2d<float, access::write> image [[texture(0)]]
     float3 density=float3(0.12f+1.1f*g,g,-0.05f+0.9f*g);
     if (config.y==1) density=float3(0);
     if (config.y==3) density+=3.0f;
-    if (edge) density=float3(0);
+    if (edge && config.y!=5) density=float3(0);
     float3 base=config.y==4 ? float3(0.3f,0.15f,0.075f) : float3(0.8f,0.4f,0.2f);
-    float3 transmission=base*pow(float3(10),-density);
+    float3 transmission=base*pow(float3(10),-density)*exp2(config.z);
     if (config.y==2) transmission=float3(1);
     image.write(float4(transmission,1),xy);
 }

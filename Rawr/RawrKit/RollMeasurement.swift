@@ -39,36 +39,65 @@ extension RawrKit {
         let cropper = AutoCropProcessor(context:context)
         let duster = DustRemovalProcessor(context:context)
         let started = Date()
-        // Stream one full-resolution texture at a time. Never retain a whole
-        // roll of images in unified memory; only 96-byte summaries accumulate.
-        for url in urls {
-            do {
-                let identity = try RollFrame(url: url, included: false, densityShift: 0)
-                var input = try NegativeImageIO.load(url: url, context: context)
-                for node in path.dropFirst() {
-                    let processor: any NodeProcessor = node.type == .autoCrop ? cropper : duster
-                    guard let output = await processor.process(inputs:["Input":input],node:node,context:context)?["Output"] else {
-                        throw CocoaError(.fileReadUnknown)
-                    }
-                    input = output
-                }
-                guard let output = await meter.analyze(input, parameters: parameters), identity.matches(url) else {
+        // Each pass streams one image. Optical reference and scene support are
+        // independent: a clear strip in one frame can calibrate the whole roll.
+        func measure(_ url: URL, reference: SIMD4<Float>? = nil) async throws -> NegativeMeteringResult {
+            var input = try NegativeImageIO.load(url:url,context:context)
+            for node in path.dropFirst() {
+                let processor: any NodeProcessor = node.type == .autoCrop ? cropper:duster
+                guard let output = await processor.process(inputs:["Input":input],node:node,context:context)?["Output"] else {
                     throw CocoaError(.fileReadUnknown)
                 }
-                var result = output.result
-                if parameters["autoEndpoints"] == 0 {
-                    result.low = manual.low; result.low.w = 1
-                    result.high = manual.high; result.high.w = 1
-                }
-                if parameters["autoBalance"] == 0 {
-                    result.offset = manual.balance; result.offset.w = 1
-                    result.slope = manual.slope
-                }
-                summaries.append(result)
+                input = output
+            }
+            guard let output = await meter.analyze(input,parameters:parameters,baseOverride:reference) else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            var result = output.result
+            if parameters["autoEndpoints"] == 0 {
+                result.low = manual.low; result.low.w = 1
+                result.high = manual.high; result.high.w = 1
+            }
+            if parameters["autoBalance"] == 0 {
+                result.offset = manual.balance; result.offset.w = 1
+                result.slope = manual.slope
+            }
+            return result
+        }
+        for url in urls {
+            do {
+                let identity = try RollFrame(url:url,included:false,densityShift:0)
+                summaries.append(try await measure(url))
+                guard identity.matches(url) else { throw CocoaError(.fileReadUnknown) }
                 identities.append(identity)
             } catch {
-                log("Roll measurement failed for \(url.lastPathComponent): \(error.localizedDescription)", level: .error)
+                log("Roll measurement failed for \(url.lastPathComponent): \(error.localizedDescription)",level:.error)
                 return nil
+            }
+        }
+        let referenceCount = summaries.filter { $0.base.w >= 0.5 }.count
+        var captureDependentAxis = false
+        if parameters["autoBase"] == 1 {
+            guard let reference = await RollReduction.baseReference(summaries,context:context),reference.w >= 0.5 else {
+                log("Roll has no supported optical base reference; measure a clear-film strip or lock a trusted base",level:.warning)
+                return nil
+            }
+            log("Roll base: validated border references in \(referenceCount)/\(urls.count) frames; measuring all scenes in a common density coordinate")
+            let alreadyCommon = summaries.allSatisfy { r in
+                r.base.w >= 0.5 && (0..<3).allSatisfy { abs(r.base[$0]/reference[$0]-1)<0.005 }
+            }
+            captureDependentAxis = !alreadyCommon
+            if !alreadyCommon {
+                summaries.removeAll(keepingCapacity:true)
+                for (i,url) in urls.enumerated() {
+                    do {
+                        summaries.append(try await measure(url,reference:reference))
+                        guard identities[i].matches(url) else { throw CocoaError(.fileReadUnknown) }
+                    } catch {
+                        log("Roll scene measurement failed for \(url.lastPathComponent): \(error.localizedDescription)",level:.error)
+                        return nil
+                    }
+                }
             }
         }
         guard let reduction = await RollReduction.reduce(summaries, context: context),
@@ -90,11 +119,11 @@ extension RawrKit {
         let r = reduction.statistics
         var calibration = NegativeDevelopParameters.defaults
         for group in ["Base", "Endpoints"] { calibration = r.locking(group, in: calibration) }
-        if r.offset.w >= 0.5 {
+        if r.offset.w >= 0.5 && (!captureDependentAxis || parameters["autoBalance"] == 0) {
             calibration = r.locking("Balance",in:calibration)
         } else {
             calibration["autoBalance"] = 1
-            log("Roll: base and endpoints saved; insufficient neutral evidence for shared balance",level:.warning)
+            log("Roll: base and endpoints saved; per-frame balance retained for unsupported or capture-dependent shared axes",level:.warning)
         }
         log("Roll: \(Int(r.quality.x))/\(urls.count) accepted, \(Date().timeIntervalSince(started)) seconds including decode")
         return RollBaseline(folder: folder, calibration: calibration,

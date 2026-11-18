@@ -72,10 +72,10 @@ actor NegativeMetering {
         self.pipelines = pipelines
     }
 
-    func analyze(_ input: ImageData, parameters: [String: Double]) async -> NegativeMeteringOutput? {
+    func analyze(_ input: ImageData, parameters: [String: Double], baseOverride: SIMD4<Float>? = nil) async -> NegativeMeteringOutput? {
         let stageStart = ProcessInfo.processInfo.systemUptime
         guard let manual = NegativeDevelopParameters(parameters), pipelines.count == 8 else { return nil }
-        let detectedBase = parameters["autoBase"] == 1 ? input.metadata.cropFilmBase : nil
+        let detectedBase = parameters["autoBase"] == 1 ? (baseOverride ?? input.metadata.cropFilmBase) : nil
         let effectiveBase = detectedBase ?? manual.base
         let autoBase = parameters["autoBase"] == 1 && detectedBase == nil
         let key = Key(source: input.contentID, base: autoBase ? .zero : effectiveBase)
@@ -166,7 +166,7 @@ actor NegativeMetering {
             result.base = detectedBase
         } else if !autoBase {
             result.base = manual.base
-            result.base.w = 1
+            result.base.w = manual.base.w > 0 ? manual.base.w : 1
         }
         withUnsafeBytes(of: &result) { summary.contents().copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
         let output = NegativeMeteringOutput(lease: summaryLease, result: result, gpuSeconds: command.gpuEndTime - command.gpuStartTime)

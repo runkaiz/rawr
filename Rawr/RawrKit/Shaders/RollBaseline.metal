@@ -13,6 +13,51 @@ float rollMedian(device float *values, uint n) {
     return n ? (values[(n-1)/2]+values[n/2])*0.5f : 0;
 }
 
+// Separate optical reference from scene support. Compare chromaticity so a
+// scanner's exposure gain is not mistaken for a different film mask.
+kernel void negativeRollBase(device const RollMeter *input [[buffer(0)]],
+    device float *scratch [[buffer(1)]], device uint *accepted [[buffer(2)]],
+    device float4 &output [[buffer(3)]], constant uint &count [[buffer(4)]],
+    uint tid [[thread_position_in_grid]]) {
+    if(tid) return;
+    uint candidates=0;
+    for(uint i=0;i<count;++i) {
+        float4 b=input[i].base;
+        accepted[i]=all(isfinite(b)) && all(b.rgb>1e-6f) && b.w>=0.5f;
+        candidates+=accepted[i];
+    }
+    float center[2],tolerance[2];
+    for(uint c=0;c<2;++c) {
+        uint n=0;
+        for(uint i=0;i<count;++i) if(accepted[i])
+            scratch[n++]=precise::log10(input[i].base[c==0 ? 0:2]/input[i].base.y);
+        center[c]=rollMedian(scratch,n);
+        for(uint i=0;i<n;++i) scratch[i]=abs(scratch[i]-center[c]);
+        tolerance[c]=max(0.025f,4.4478f*rollMedian(scratch,n));
+    }
+    uint included=0;
+    for(uint i=0;i<count;++i) if(accepted[i]) {
+        float3 b=input[i].base.rgb;
+        accepted[i]=abs(precise::log10(b.x/b.y)-center[0])<=tolerance[0] &&
+            abs(precise::log10(b.z/b.y)-center[1])<=tolerance[1];
+        included+=accepted[i];
+    }
+    output=float4(1,1,1,0);
+    if(!included) return;
+    float4 result(0);
+    for(uint c=0;c<4;++c) {
+        uint n=0;
+        for(uint i=0;i<count;++i) if(accepted[i]) {
+            float4 b=input[i].base;
+            scratch[n++]=c==0 ? b.x/b.y : (c==2 ? b.z/b.y:b[c]);
+        }
+        result[c]=rollMedian(scratch,n);
+    }
+    result.xz*=result.y;
+    result.w*=float(included)/float(max(1u,candidates));
+    output=result;
+}
+
 kernel void negativeRollReduce(device const RollMeter *input [[buffer(0)]],
     device float *scratch [[buffer(1)]], device float4 *frames [[buffer(2)]],
     device RollMeter &output [[buffer(3)]], constant uint &count [[buffer(4)]],

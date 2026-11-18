@@ -122,6 +122,28 @@ struct AutoCropTests {
         #expect(await processor.process(inputs: ["Input": input], node: node, context: ctx) == nil)
     }
 
+    @Test func `Central scene lines do not masquerade as a tiny film frame`() async throws {
+        let ctx=try context(), w=512
+        let d=MTLTextureDescriptor.texture2DDescriptor(pixelFormat:.rgba32Float,width:w,height:w,mipmapped:false)
+        d.usage=[.shaderRead,.shaderWrite]
+        let texture=try #require(ctx.device.makeTexture(descriptor:d))
+        var pixels=[SIMD4<Float>]()
+        for y in 0..<w { for x in 0..<w {
+            let u=Double(x)/Double(w),v=Double(y)/Double(w)
+            let line=(u>0.33 && u<0.34)||(u>0.66 && u<0.67)||(v>0.33 && v<0.34)||(v>0.66 && v<0.67)
+            pixels.append(line ? SIMD4(0.02,0.01,0.005,1):SIMD4(0.6,0.3,0.15,1))
+        } }
+        pixels.withUnsafeBytes {texture.replace(region:MTLRegionMake2D(0,0,w,w),mipmapLevel:0,withBytes:$0.baseAddress!,bytesPerRow:w*16)}
+        var metadata=ImageMetadata(width:w,height:w);metadata.domain = .linearTransmittance
+        let input=ImageData(texture:texture,metadata:metadata)
+        let result=try #require(await AutoCropDetector(context:ctx).analyze(input))
+        #expect(!result.accepted)
+        var node=NodeData(type:.autoCrop,position:.zero)
+        node.autoCrop?.manual=CropGeometry(width:0.1,height:0.1)
+        let manual=try #require(await AutoCropProcessor(context:ctx).process(inputs:["Input":input],node:node,context:ctx)?["Output"])
+        #expect(manual.texture.width==51 && manual.texture.height==51)
+    }
+
     @Test func `Crop document preserves manual rotation roll size and per-frame offsets`() throws {
         var node = NodeData(type: .autoCrop, position: .zero)
         node.autoCrop?.manual = CropGeometry(centerX: 0.51, centerY: 0.49,width: 0.7,height: 0.5,degrees: 3)

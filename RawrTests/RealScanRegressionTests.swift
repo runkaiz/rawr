@@ -198,6 +198,11 @@ struct RealScanRegressionTests {
         #expect(reduction.statistics.base.w>0.8 && reduction.statistics.offset.w==0)
         let insufficient = try #require(await RollReduction.reduce([good,good],context:ctx))
         #expect(insufficient.statistics.base.w==0)
+        var noBorder=good;noBorder.base.w=0
+        let shared=try #require(await RollReduction.baseReference([good,noBorder,noBorder],context:ctx))
+        #expect(abs(shared.x-good.base.x)<0.0001 && shared.w>=0.5)
+        let absent=try #require(await RollReduction.baseReference([noBorder,noBorder,noBorder],context:ctx))
+        #expect(absent.w==0)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
         defer { try? FileManager.default.removeItem(at:root) }

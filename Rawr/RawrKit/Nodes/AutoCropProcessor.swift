@@ -78,11 +78,11 @@ actor AutoCropDetector {
             centerY: 0.5 - (sin(angle) * dx + cos(angle) * dy) / Double(height),
             width: Double(bounds.y - bounds.x), height: Double(bounds.w - bounds.z), degrees: -degrees)
         var confidence = Double(candidate.quality.y)
-        if !geometry.isValid(width: width, height: height) || abs(degrees) == 8 { confidence = 0 }
         let raw = geometry
         // A small safety inset removes the edge transition and mild light leaks.
         geometry.width = max(0.02, geometry.width - 0.012)
         geometry.height = max(0.02, geometry.height - 0.012)
+        if !geometry.isValid(width:width,height:height) || abs(degrees)==8 { confidence=0 }
         var result = AutoCropResult(proposal: geometry, applied: geometry, confidence: confidence,
             source: input.metadata.sourceURL, sourceWidth: width, sourceHeight: height,
             gpuSeconds: command.gpuEndTime - command.gpuStartTime)
