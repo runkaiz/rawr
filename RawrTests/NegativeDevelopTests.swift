@@ -43,6 +43,7 @@ struct NegativeDevelopTests {
         var metadata = ImageMetadata(width: pixels.count, height: 1)
         metadata.domain = .linearTransmittance
         var node = NodeData(type: .negativeDevelop, position: .zero)
+        node.parameters.merge(["autoBase": 0, "autoEndpoints": 0, "autoBalance": 0]) { _, new in new }
         node.parameters.merge(parameters) { _, new in new }
         let output = try #require(await NegativeDevelopProcessor(context: ctx).process(
             inputs: ["Input": ImageData(texture: texture, metadata: metadata)], node: node, context: ctx)?["Output"])
@@ -150,7 +151,7 @@ struct NegativeDevelopTests {
         var input = NodeData(type: folder ? .folderInput : .imageInput, position: .zero)
         input.imageURL = url
         var negative = NodeData(type: .negativeDevelop, position: CGPoint(x: 210, y: 0))
-        negative.parameters.merge(["baseR": 0.8, "baseG": 0.4, "baseB": 0.2, "toe": 0.2, "shoulder": 0.3]) { _, new in new }
+        negative.parameters.merge(["autoBase": 0, "autoEndpoints": 0, "autoBalance": 0, "baseR": 0.8, "baseG": 0.4, "baseB": 0.2, "toe": 0.2, "shoulder": 0.3]) { _, new in new }
         let preview = NodeData(type: .preview, position: CGPoint(x: 510, y: 0))
         return NodeGraph(nodes: [input, negative, preview], connections: [
             Connection(fromNodeId: input.id, fromOutput: "Image", toNodeId: negative.id, toInput: "Input"),

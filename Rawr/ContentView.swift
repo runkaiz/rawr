@@ -106,6 +106,7 @@ struct EditorView: View {
                         }
                     ),
                     selectedNodeType: $selectedNodeType,
+                    negativeStatistics: rawrKit.negativeStatistics,
                     onInputNodeDeleted: {
                         // Clear all cached images and folder scans when input node is deleted
                         rawrKit.clearSourceImageCache()

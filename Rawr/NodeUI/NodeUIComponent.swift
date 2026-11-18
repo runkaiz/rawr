@@ -16,6 +16,8 @@ public protocol NodeUIComponent {
 /// Context passed to UI components for interaction with the node system
 public struct NodeUIContext {
     /// Callback to update node parameters
+    var negativeStatistics: NegativeMeteringResult? = nil
+
     public let onParameterChange: ([String: Double]) -> Void
 
     /// Callback to select an image (for ImageInput nodes)
