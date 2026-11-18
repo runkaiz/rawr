@@ -1,5 +1,5 @@
 """Generate sensor.dng using only Python stdlib; no camera image or third-party code.
-A DNG 1.4 TIFF with 16x12 RGB IFD0 and a 256x192 uncompressed RGGB SubIFD.
+A DNG 1.4 TIFF with 16x12 RGB IFD0 and a 256x256 uncompressed RGGB SubIFD.
 """
 import struct
 from pathlib import Path
@@ -43,19 +43,19 @@ _, preview = ifd([
     rational(50728, (1, 1), (1, 1), (1, 1)), short(50778, 21),
 ])
 sensor_offset, sensor = ifd([
-    long(254, 0), long(256, 256), long(257, 192), short(258, 16), short(259, 1),
-    short(262, 32803), long(273), short(277, 1), long(278, 192), long(279, 256 * 192 * 2),
+    long(254, 0), long(256, 256), long(257, 256), short(258, 16), short(259, 1),
+    short(262, 32803), long(273), short(277, 1), long(278, 256), long(279, 256 * 256 * 2),
     short(284, 1), short(33421, 2, 2), (33422, 1, 4, bytes([0, 1, 1, 2])),
     (50710, 1, 3, bytes([0, 1, 2])), short(50711, 1), short(50713, 1, 1),
     rational(50714, (0, 1)), long(50717, 65535),
-    rational(50718, (1, 1), (1, 1)), long(50719, 0),
-    (50720, 4, 2, pack("II", 256, 192)),
+    rational(50718, (1, 1), (1, 1)), (50719, 4, 2, pack("II", 0, 0)),
+    (50720, 4, 2, pack("II", 256, 256)),
 ])
 struct.pack_into("<I", blob, preview[330], sensor_offset)
 struct.pack_into("<I", blob, preview[273], len(blob))
 blob.extend(bytes([90, 100, 110]) * (16 * 12))
 struct.pack_into("<I", blob, sensor[273], len(blob))
-for y in range(192):
+for y in range(256):
     for x in range(256):
         blob.extend(pack("H", 4000 + x * 100 + y * 70))
 Path(__file__).with_name("sensor.dng").write_bytes(blob)

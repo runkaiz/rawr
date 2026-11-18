@@ -50,11 +50,10 @@ struct RawrTests {
         #expect(embedded.height == 12)
         let decoder = ImageDecoder(context: CIContext())
         let images = [try decoder.decode(url: url),
-                      try decoder.decode(data: data, typeHint: "com.adobe.raw-image"),
-                      try decoder.decode(data: data)]
+                      try decoder.decode(data: data, typeHint: "com.adobe.raw-image")]
         for image in images {
             #expect(image.width == 256)
-            #expect(image.height == 192)
+            #expect(image.height == 256)
         }
     }
 
@@ -71,7 +70,7 @@ struct RawrTests {
         #expect(await kit.exportImage(flow, to: output))
         let exported = try ImageDecoder(context: CIContext()).decode(url: output)
         #expect(exported.width == 256)
-        #expect(exported.height == 192)
+        #expect(exported.height == 256)
         #expect(await kit.executeGraph(flow))
         #expect(kit.processedPreviewImage?.width == 64)
         #expect(!kit.isProcessing)
@@ -93,7 +92,7 @@ struct RawrTests {
         #expect(await kit.exportFolderBatch(graph(root, folder: true), to: destination))
         let exported = try ImageDecoder(context: CIContext()).decode(url: destination.appendingPathComponent("raw_processed.tiff"))
         #expect(exported.width == 256)
-        #expect(exported.height == 192)
+        #expect(exported.height == 256)
     }
 
     @Test func `Ordinary images preserve dimensions and EXIF orientation`() throws {
@@ -116,9 +115,17 @@ struct RawrTests {
 
     @Test func `Invalid data and missing files fail without fallback thumbnails`() throws {
         let decoder = ImageDecoder(context: CIContext())
-        #expect(throws: (any Error).self) { try decoder.decode(data: Data([1, 2, 3])) }
+        #expect(throws: (any Error).self) { try decoder.decode(data: Data([1, 2, 3]), typeHint: UTType.png.identifier) }
         #expect(throws: (any Error).self) { try decoder.decode(data: Data([1, 2, 3]), typeHint: "com.nikon.raw-image") }
         #expect(throws: (any Error).self) { try decoder.decode(url: URL(fileURLWithPath: "/missing/rawr-image.nef")) }
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let disguised = root.appendingPathComponent("ordinary.nef")
+        try ordinaryImage(at: disguised)
+        #expect(throws: (any Error).self) { try decoder.decode(url: disguised) }
+        #expect(throws: (any Error).self) {
+            try decoder.decode(data: Data(contentsOf: disguised), typeHint: "com.nikon.raw-image")
+        }
     }
 
     @Test(arguments: [(0.0, 10.0), (-1.0, 10.0), (Double.infinity, 10.0), (Double.nan, 10.0), (16385.0, 1.0), (16384.0, 16384.0)])
@@ -230,8 +237,15 @@ struct RawrTests {
         #expect(await kit.executeGraph(flow))
         var document = RawrDocument()
         document.flowDocument = FlowDocument(version: "1.0", sourceFile: nil, metadata: DocumentMetadata(), nodeGraph: flow)
-        let view = PreviewSectionView(document: .constant(document), showExportDialog: .constant(false),
-            exportFormat: .constant(.tiff), rawrKit: kit).frame(width: 1100, height: 300)
+        let panel = PreviewSectionView(document: .constant(document), showExportDialog: .constant(false),
+            exportFormat: .constant(.tiff), rawrKit: kit)
+        // ImageRenderer cannot flatten AppKit's HSplitView. Render its real SwiftUI
+        // pane contents in a fixed layout without opening an application window.
+        let view = HStack(spacing: 1) {
+            panel.beforePreviewView
+            panel.afterPreviewView
+            panel.logsView
+        }.frame(width: 1100, height: 300)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         let image = try #require(renderer.cgImage)

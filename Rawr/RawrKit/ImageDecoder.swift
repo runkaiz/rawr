@@ -30,23 +30,19 @@ struct ImageDecoder {
             guard let filter = CIRAWFilter(imageURL: url) else { throw DecodeError.unsupportedRAW }
             return try renderRAW(filter)
         }
-        return try decode(data: Data(contentsOf: url), typeHint: hint)
+        return try decode(data: Data(contentsOf: url), typeHint: hint ?? UTType.image.identifier)
     }
 
-    func decode(data: Data, typeHint: String? = nil) throws -> CGImage {
-        let options = typeHint.map { [kCGImageSourceTypeIdentifierHint: $0] as CFDictionary }
+    /// Data has no filename: callers must preserve its type (for example com.nikon.raw-image).
+    /// TIFF-based RAW bytes alone can be indistinguishable from an ordinary TIFF to ImageIO.
+    func decode(data: Data, typeHint: String) throws -> CGImage {
+        let options = [kCGImageSourceTypeIdentifierHint: typeHint] as CFDictionary
         let source = CGImageSourceCreateWithData(data as CFData, options)
         let detectedType = source.flatMap { CGImageSourceGetType($0) as String? }
         if Self.isRAW(typeHint) || Self.isRAW(detectedType) {
-            guard let filter = CIRAWFilter(imageData: data, identifierHint: typeHint ?? detectedType) else {
+            guard let filter = CIRAWFilter(imageData: data, identifierHint: typeHint) else {
                 throw DecodeError.unsupportedRAW
             }
-            return try renderRAW(filter)
-        }
-        // Some TIFF-based RAW containers (notably NEF) are identified as TIFF
-        // without a filename. Ask the RAW decoder before ImageIO can return IFD0's thumbnail.
-        if detectedType == UTType.tiff.identifier,
-           let filter = CIRAWFilter(imageData: data, identifierHint: nil) {
             return try renderRAW(filter)
         }
         guard let source,
@@ -79,6 +75,11 @@ struct ImageDecoder {
     }
 
     private func renderRAW(_ filter: CIRAWFilter) throws -> CGImage {
+        // CIRAWFilter can silently fall back to the ordinary image decoder,
+        // reporting an embedded thumbnail as nativeSize. That is not a RAW decode.
+        guard !filter.decoderVersion.rawValue.isEmpty, filter.decoderVersion.rawValue != "None" else {
+            throw DecodeError.unsupportedRAW
+        }
         let native = filter.nativeSize
         try Self.validateDimensions(width: native.width, height: native.height)
         filter.scaleFactor = 1

@@ -193,7 +193,7 @@ struct PreviewSectionView: View {
         .background(Color(NSColor.textBackgroundColor))
     }
 
-    private var beforePreviewView: some View {
+    var beforePreviewView: some View {
         VStack(spacing: 0) {
             Text("Before")
                 .font(.headline)
@@ -215,7 +215,7 @@ struct PreviewSectionView: View {
         }
     }
 
-    private var afterPreviewView: some View {
+    var afterPreviewView: some View {
         VStack(spacing: 0) {
             Text("After")
                 .font(.headline)
@@ -239,7 +239,7 @@ struct PreviewSectionView: View {
         }
     }
 
-    private var logsView: some View {
+    var logsView: some View {
         VStack(spacing: 0) {
             Text("Logs")
                 .font(.headline)
