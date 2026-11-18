@@ -204,7 +204,7 @@ struct NegativeDevelopTests {
         #expect(!exported.bitmapInfo.contains(.floatComponents))
         let profile = try #require(exported.colorSpace)
         #expect(profile.model == .rgb)
-        #expect(CGColorSpaceCopyICCData(profile) != nil) // ImageIO rehydrates an ICC profile with no built-in name.
+        #expect(profile.copyICCData() != nil) // ImageIO rehydrates an ICC profile with no built-in name.
         let ctx = try context()
         let scaled = CIImage(cgImage: exported).applyingFilter("CILanczosScaleTransform",
             parameters: [kCIInputScaleKey: 0.25, kCIInputAspectRatioKey: 1])
