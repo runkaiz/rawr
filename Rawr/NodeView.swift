@@ -186,7 +186,7 @@ struct NodeView: View {
             }
         }
         .padding(.bottom, 8)
-        .frame(width: node.type == .negativeDevelop ? 230 : 150)
+        .frame(width: node.type == .dustRemoval ? 245 : (node.type == .negativeDevelop ? 230 : 150))
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(8)
         .overlay(

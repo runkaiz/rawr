@@ -89,6 +89,6 @@ struct DustRemovalControls: View {
             }
             Text("Inspect the mask: automatic RGB detection may flag real detail.")
                 .font(.caption2).foregroundStyle(.secondary)
-        }.font(.caption)
+        }.font(.caption).padding(.horizontal, 12)
     }
 }
