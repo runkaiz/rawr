@@ -31,7 +31,7 @@ kernel void autoCropProjections(texture2d<float, access::read> image [[texture(0
     device float *profiles [[buffer(0)]], uint3 tid [[thread_position_in_grid]]) {
     if (tid.x >= cropBins || tid.y >= 2 || tid.z >= cropAngles) return;
     float2 size(image.get_width(),image.get_height());
-    float angle = radians((float(tid.z)-32.0f)*0.25f);
+    float angle = (float(tid.z)-32.0f)*0.25f*M_PI_F/180.0f;
     float score = 0, support = 0;
     for (uint i = 0; i < 96; ++i) {
         float t = 0.28f + (float(i)+0.5f)/96.0f*0.44f;
