@@ -69,11 +69,13 @@ float quantile(device const uint *h, float q, thread uint &total) {
     return 1.0f;
 }
 
-// Three threads perform compact CDF selections entirely on GPU.
+// One thread selects all channels. Component stores on a device float4 can
+// lower to vector read/modify/write; parallel channel writes would race.
 kernel void negativeMeterSelect(device const uint *hist [[buffer(0)]], device MeterResult &r [[buffer(1)]],
     constant MeterConfig &cfg [[buffer(2)]], constant uint &phase [[buffer(3)]],
-    uint c [[thread_position_in_grid]]) {
-    if (c >= 3) return;
+    uint tid [[thread_position_in_grid]]) {
+    if (tid) return;
+    for (uint c = 0; c < 3; ++c) {
     uint count;
     device const uint *h = hist + c * bins;
     if (phase == 0) {
@@ -88,6 +90,7 @@ kernel void negativeMeterSelect(device const uint *hist [[buffer(0)]], device Me
     } else {
         r.low[c] = quantile(h, 0.01f, count) * 6.0f;
         r.high[c] = max(r.low[c] + 0.01f, quantile(h, 0.99f, count) * 6.0f);
+    }
     }
 }
 

@@ -119,7 +119,7 @@ actor NegativeMetering {
                 $0.setBuffer(partial, offset: 0, index: 0)
                 $0.setBuffer(histogram, offset: 0, index: 1)
                 $0.setBytes(&cfg, length: MemoryLayout<Config>.stride, index: 2)
-            }), encode("Select", size: MTLSize(width: 3, height: 1, depth: 1), {
+            }), encode("Select", size: MTLSize(width: 1, height: 1, depth: 1), {
                 $0.setBuffer(histogram, offset: 0, index: 0)
                 $0.setBuffer(summary, offset: 0, index: 1)
                 $0.setBytes(&cfg, length: MemoryLayout<Config>.stride, index: 2)

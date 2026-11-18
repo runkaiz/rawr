@@ -162,6 +162,46 @@ struct NegativeMeteringTests {
         #expect(decoded.parameters["balanceR"] == Double(r.offset.x))
     }
 
+    @Test func `Automatic development neutralizes the cast and source edits invalidate summaries`() async throws {
+        let ctx = try context(), pixels = fixture()
+        let input = try image(pixels,width:256,height:256,context:ctx)
+        let node = NodeData(type:.negativeDevelop,position:.zero)
+        let output = try #require(await NegativeDevelopProcessor(context:ctx).process(inputs:["Input":input],node:node,context:ctx)?["Output"])
+        let buffer = try #require(ctx.device.makeBuffer(length:256*256*16))
+        let command = try #require(ctx.commandQueue.makeCommandBuffer()), blit = try #require(command.makeBlitCommandEncoder())
+        blit.copy(from:output.texture,sourceSlice:0,sourceLevel:0,sourceOrigin:MTLOrigin(),sourceSize:MTLSize(width:256,height:256,depth:1),to:buffer,destinationOffset:0,destinationBytesPerRow:256*16,destinationBytesPerImage:256*256*16)
+        blit.endEncoding(); command.commit(); await command.completed()
+        let actual = buffer.contents().assumingMemoryBound(to:SIMD4<Float>.self)
+        for x in 40..<210 {
+            let v = actual[128*256+x]
+            #expect(abs(v.x-v.y) < 0.0001 && abs(v.z-v.y) < 0.0001)
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("MeterCache-\(UUID())")
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:root) }
+        let url = root.appendingPathComponent("source.tiff")
+        func write(_ pixels: [SIMD4<Float>]) throws {
+            let data = pixels.withUnsafeBytes { Data($0) }
+            let image = CIImage(bitmapData:data,bytesPerRow:256*16,size:CGSize(width:256,height:256),format:.RGBAf,colorSpace:NegativeImageIO.colorSpace)
+            try ctx.linearCIContext.writeTIFFRepresentation(of:image,to:url,format:.RGBAf,colorSpace:NegativeImageIO.colorSpace)
+        }
+        try write(pixels)
+        let kit = RawrKit()
+        let a = try #require(kit.loadNegativeSource(at:url,context:ctx))
+        let b = try #require(kit.loadNegativeSource(at:url,context:ctx))
+        #expect(a.contentID == b.contentID && a.texture === b.texture)
+        // Same-size edits less than one second apart must not reuse stale data.
+        let t = Date(timeIntervalSince1970:1_700_000_000.1)
+        try FileManager.default.setAttributes([.modificationDate:t],ofItemAtPath:url.path)
+        let c = try #require(kit.loadNegativeSource(at:url,context:ctx))
+        try FileManager.default.setAttributes([.modificationDate:t.addingTimeInterval(0.1)],ofItemAtPath:url.path)
+        let d = try #require(kit.loadNegativeSource(at:url,context:ctx))
+        #expect(c.contentID != d.contentID)
+        kit.clearSourceImageCache()
+        let e = try #require(kit.loadNegativeSource(at:url,context:ctx))
+        #expect(e.contentID != d.contentID)
+    }
+
     @Test func `24 megapixel metering records cold warm and cached timings`() async throws {
         let ctx = try context()
         // Fixture generation/upload is deliberately excluded from analysis timing.
