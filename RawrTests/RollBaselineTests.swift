@@ -23,7 +23,7 @@ struct RollBaselineTests {
         descriptor.storageMode = .private; descriptor.usage = [.shaderRead, .shaderWrite]
         let texture = try #require(existing ?? context.device.makeTexture(descriptor: descriptor))
         let function = try #require(context.shaderLibrary?.makeFunction(name: "rollTestFixture"))
-        let pipeline = try context.device.makeComputePipelineState(function: function)
+        let pipeline = try await context.device.makeComputePipelineState(function: function)
         let command = try #require(context.commandQueue.makeCommandBuffer())
         let encoder = try #require(command.makeComputeCommandEncoder())
         var config = SIMD4<Float>(shift, mode, 0, 0)
@@ -134,10 +134,12 @@ struct RollBaselineTests {
         roll.frames[0].optOut = true; roll.frames[0].overrides = [:]
         node.parameters["autoBase"] = 1
         p = try #require(roll.parameters(for: url, node: node.parameters))
-        #expect(p["autoBase"] == 1 && p["rollDensityShift"] == nil)
+        #expect(p["autoBase"] == 1 && p["rollDensityShift"] == 0)
         node.rollBaseline = roll
         let flow = FlowDocument(version: "1.0", sourceFile: nil, metadata: DocumentMetadata(), nodeGraph: NodeGraph(nodes: [node]))
-        let decoded = try JSONDecoder().decode(FlowDocument.self, from: JSONEncoder().encode(flow))
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(FlowDocument.self, from: encoder.encode(flow))
         #expect(decoded.nodeGraph.nodes.first?.rollBaseline == roll)
         roll.version = 99
         #expect(roll.parameters(for: url, node: node.parameters) == nil)

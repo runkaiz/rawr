@@ -176,3 +176,66 @@ border/heavy-clipping confidence, invalid pixels, cache behavior, manual overrid
 and lock persistence; render automatic/manual UI states offscreen; and record
 24 MP metering wall/GPU/cached timings. The shared Rawr scheme includes only the
 unhosted unit target, with no TEST_HOST or BUNDLE_LOADER and no UI tests.
+
+## Roll consistency (baseline version 1)
+
+Connect Folder Input directly to Negative Develop and choose **Measure folder
+roll**. Use one film roll with a consistent capture setup. Measurement streams
+native-resolution sources one at a time, retaining only each frame's compact
+GPU metering summary. It requires at least three reliable frames and supports
+up to 4096 files. Decode failure aborts measurement without replacing a saved
+baseline. Measurement runs in the same request queue as preview and export.
+
+A second Metal kernel performs all cross-frame statistics. Candidate frames
+need base, endpoint and neutral-axis confidence >= .5, valid sample fraction
+>= .8, out-of-domain density fraction < .1, and density span >= .2. Blanks,
+severe clipping, missing borders and unsupported neutral fits therefore cannot
+set the baseline. Among candidates, median/MAD rejection runs on log10 RGB
+base, green density span and green density midpoint. Thresholds are
+max(4.4478 * MAD, floor), with floors .04 log10 base, .3 density span and .6
+density midpoint. Thresholds are frozen before rejection. Accepted-frame
+component medians form the shared base, endpoints and neutral axis; confidence
+is median frame confidence multiplied by the accepted fraction of all frames.
+Fewer than three accepted frames produces no saved baseline.
+
+For accepted frames, the GPU saves the difference between its density midpoint
+and the roll midpoint. Development subtracts this scalar **after neutral-axis
+normalization and before endpoint normalization**. This aligns comparable
+neutral distributions despite exposure differences; it assumes comparable
+scene density distributions across the roll. It cannot distinguish a truly
+darker scene from an exposure error. Review the result and use the individual
+frame toggle for intentionally high-key/low-key scenes. Excluded frames still
+receive the shared calibration but get no estimated density shift. Outlier
+exclusion changes measurement, not the batch file list: all frames export.
+
+The node shows the version, confidence, accepted count, RGB base, density
+endpoints, neutral shift/slope, and selected frame's participation/alignment.
+**Frame exposure trim (EV)** adds to the node's print exposure. **Use individual
+frame settings** bypasses shared calibration and density alignment for that
+frame, using the node's normal auto/manual groups. **Override frame with current
+node settings** snapshots the manual numeric fields into a saved frame override;
+it sets automatic groups off and density alignment to zero. Clear that override
+to resume normal selection. A saved frame override takes precedence over node
+and roll values, including exposure. Manual node groups take precedence over
+shared roll groups; automatic groups select the roll's saved numbers. The
+resulting complete calibration is validated before GPU rendering.
+
+The baseline and frame edits are Codable node data saved inside `.flow`, with
+algorithm/schema version 1 and a measurement revision UUID. File names, byte
+sizes and fractional modification timestamps identify the measured sources.
+Timestamps are stored as numbers so document ISO-8601 date formatting cannot
+truncate them. A changed selected source or unsupported baseline fails rendering
+with a remeasurement instruction. Batch export preflights the entire saved
+manifest before writing, including added or removed files. Re-measure or remove
+the baseline after moving the folder or changing files. Re-measurement replaces
+both calibration and frame edits; it does not happen implicitly on export.
+Old documents have no roll baseline and retain their existing behavior.
+
+This is an independent RawrKit/Metal implementation based on the density model
+above and standard robust statistics. No NegPy source was read, copied, linked,
+or executed for this feature. The synthetic roll tests specify their own known
+base, cast, exposure shifts and outliers, verify positive neutral agreement,
+exercise saved overrides/opt-out, round-trip document data, and perform actual
+folder measurement and batch TIFF export. The 36 x 24 MP benchmark measures
+GPU synthetic-source generation, frame metering and roll reduction separately;
+it excludes real-file decoding and export, and reports the VM's Metal device.

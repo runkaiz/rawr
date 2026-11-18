@@ -13,7 +13,7 @@ struct RollBaselineControls: View {
             Button(baseline == nil ? "Measure folder roll" : "Measure roll again", action: onMeasure)
                 .help("Connect Folder Input directly. At least three reliable frames with film borders and neutral detail are required. Measurement replaces the baseline and frame edits.")
             if let baseline {
-                Text("Baseline v\(baseline.version) · Confidence \(Int(baseline.confidence * 100))%")
+                Text("Baseline v\(baseline.version) · Confidence \(Int((baseline.confidence.isFinite ? min(1, max(0, baseline.confidence)) : 0) * 100))%")
                 Text("\(baseline.frames.filter(\.included).count) / \(baseline.frames.count) frames accepted")
                 let p = baseline.calibration
                 Text("Base RGB \(p["baseR", default: 1], specifier: "%.3f") / \(p["baseG", default: 1], specifier: "%.3f") / \(p["baseB", default: 1], specifier: "%.3f")")
@@ -43,7 +43,7 @@ private struct RollFrameControls: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(frame.name).lineLimit(1)
             Text(frame.included ? "Included in baseline" : "Outlier excluded from measurement")
-                .foregroundStyle(frame.included ? .secondary : .orange)
+                .foregroundStyle(frame.included ? Color.secondary : Color.orange)
             Text("Density alignment \(frame.densityShift, specifier: "%.3f") D")
             Toggle("Use individual frame settings", isOn: Binding(
                 get: { frame.optOut }, set: { value in

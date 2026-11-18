@@ -53,7 +53,7 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
 public struct RollFrame: Codable, Equatable, Hashable, Sendable {
     public var name: String
     public var size: Int64
-    public var modified: Date
+    public var modified: Double
     public var included: Bool
     public var densityShift: Float
     public var exposure: Double = 0
@@ -61,18 +61,19 @@ public struct RollFrame: Codable, Equatable, Hashable, Sendable {
     public var overrides: [String: Double] = [:]
 
     init(url: URL, included: Bool, densityShift: Float) throws {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        guard let size = values.fileSize, let modified = values.contentModificationDate else { throw CocoaError(.fileReadUnknown) }
+        let values = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let size = values[.size] as? NSNumber, let modified = values[.modificationDate] as? Date else { throw CocoaError(.fileReadUnknown) }
         self.name = url.lastPathComponent
-        self.size = Int64(size)
-        self.modified = modified
+        self.size = size.int64Value
+        self.modified = modified.timeIntervalSince1970
         self.included = included
         self.densityShift = densityShift
     }
 
     func matches(_ url: URL) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return false }
-        return values.fileSize.map(Int64.init) == size && values.contentModificationDate == modified
+        guard let values = try? FileManager.default.attributesOfItem(atPath: url.path) else { return false }
+        return (values[.size] as? NSNumber)?.int64Value == size &&
+            (values[.modificationDate] as? Date)?.timeIntervalSince1970 == modified
     }
 }
 
@@ -86,7 +87,7 @@ struct RollReduction {
     static func reduce(_ summaries: [NegativeMeteringResult], context: ProcessingContext) async -> RollReduction? {
         guard !summaries.isEmpty, summaries.count <= 4096,
               let function = context.shaderLibrary?.makeFunction(name: "negativeRollReduce"),
-              let pipeline = try? context.device.makeComputePipelineState(function: function) else { return nil }
+              let pipeline = try? await context.device.makeComputePipelineState(function: function) else { return nil }
         let device = context.device, count = summaries.count
         guard let input = summaries.withUnsafeBytes({ bytes in
                   device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)

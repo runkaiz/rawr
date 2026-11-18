@@ -60,7 +60,7 @@ extension RawrKit {
         // A folder edit during measurement invalidates the entire transaction.
         clearFolderCache()
         guard await scanFolderForImages(folderURL: folder) == urls,
-              zip(identities, urls).allSatisfy({ $0.matches($1) }) else {
+              zip(identities, urls).allSatisfy({ pair in pair.0.matches(pair.1) }) else {
             log("Folder changed during roll measurement; try again", level: .warning)
             return nil
         }
