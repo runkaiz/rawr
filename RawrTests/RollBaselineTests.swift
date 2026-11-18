@@ -282,14 +282,22 @@ struct RollBaselineTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("frame07.tiff"); try Data([0]).write(to: url)
-        var roll = RollBaseline(folder: root, calibration: NegativeDevelopParameters.defaults, confidence: 0.92,
-            frames: [try RollFrame(url: url, included: true, densityShift: 0.12)])
-        roll.frames[0].exposure = 0.25
+        var calibration = NegativeDevelopParameters.defaults
+        calibration.merge(["baseR": 0.8, "baseG": 0.4, "baseB": 0.2, "lowR": 0.2, "lowG": 0.2,
+            "lowB": 0.2, "highR": 2.2, "highG": 2.2, "highB": 2.2,
+            "balanceR": 0.12, "balanceB": -0.05, "slopeR": 1.1, "slopeB": 0.9]) { _, new in new }
+        var roll = RollBaseline(folder: root, calibration: calibration, confidence: 0.92,
+            frames: try (0..<36).map { i in
+                var frame = try RollFrame(url: url, included: i < 33, densityShift: i < 33 ? 0.12 : 0)
+                frame.name = String(format: "frame%02d.tiff", i)
+                return frame
+            })
+        roll.frames[7].exposure = 0.25
         let view = VStack(alignment: .leading) {
             Text("Negative Develop").font(.headline)
             RollBaselineControls(baseline: roll, selectedName: "frame07.tiff", onMeasure: {}, onChange: { _ in })
             Divider()
-            NegativeDevelopControls(parameters: automatic, onChange: { _ in })
+            NegativeDevelopControls(parameters: automatic, statistics: roll.statistics, onChange: { _ in })
         }.padding().frame(width: 360).background(.white).environment(\.colorScheme, .light)
         // ImageRenderer cannot flatten AppKit-backed TextFields. Capture an
         // offscreen hosting view so native controls are visible, without a window.
@@ -304,7 +312,8 @@ struct RollBaselineTests {
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         canvas.setFillColor(CGColor(gray: 1, alpha: 1)); canvas.fill(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         canvas.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
-        let png = try #require(NSBitmapImageRep(cgImage: try #require(canvas.makeImage())).representation(using: .png, properties: [:]))
+        let flattened = try #require(canvas.makeImage())
+        let png = try #require(NSBitmapImageRep(cgImage: flattened).representation(using: .png, properties: [:]))
         Attachment.record(png, named: "roll-consistency-controls.png")
         if let path = ProcessInfo.processInfo.environment["RAWR_PROOF_DIR"] {
             try png.write(to: URL(fileURLWithPath: path).appendingPathComponent("roll-consistency-controls.png"))

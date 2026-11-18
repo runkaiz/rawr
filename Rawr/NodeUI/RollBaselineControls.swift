@@ -57,14 +57,14 @@ private struct RollFrameControls: View {
                 }), format: .number.precision(.fractionLength(0...3)))
                 .textFieldStyle(.roundedBorder)
             Text("Frame exposure trim (EV)").foregroundStyle(.secondary)
-            Button("Override frame with current node settings") {
+            Button("Save frame override") {
                 var updated = baseline
                 var manual = parameters.merging(NegativeDevelopParameters.defaults) { saved, _ in saved }
                 for group in ["Base", "Endpoints", "Balance"] { manual["auto" + group] = 0 }
                 manual["rollDensityShift"] = 0
                 updated.frames[index].overrides = manual
                 onChange(updated)
-            }
+            }.help("Save the node's current manual numbers for this frame, disabling automatic groups and density alignment.")
             if !frame.overrides.isEmpty {
                 Text("Saved frame override active").foregroundStyle(.orange)
                 Button("Clear frame override") {

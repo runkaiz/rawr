@@ -11,6 +11,19 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
     public var confidence: Float
     public var frames: [RollFrame]
 
+    /// Present saved GPU results using the same controls/locking path as a
+    /// single frame. This only unpacks serialized values; it does not re-meter.
+    var statistics: NegativeMeteringResult? {
+        guard isSupported, let p = NegativeDevelopParameters(calibration) else { return nil }
+        var r = NegativeMeteringResult()
+        r.base = p.base; r.base.w = confidence
+        r.low = p.low; r.low.w = confidence
+        r.high = p.high; r.high.w = confidence
+        r.offset = p.balance; r.offset.w = confidence
+        r.slope = p.slope
+        return r
+    }
+
     var isSupported: Bool {
         version == 1 && confidence.isFinite && (0...1).contains(confidence) &&
         NegativeDevelopParameters(calibration) != nil &&

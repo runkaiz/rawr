@@ -2,11 +2,13 @@ import SwiftUI
 
 struct NegativeDevelopComponent: NodeUIComponent {
     func build(node: NodeData, context: NodeUIContext) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let optedOut = node.rollBaseline?.frames.first(where: { $0.name == context.rollFrameName })?.optOut == true
+        let statistics = optedOut ? context.negativeStatistics : (node.rollBaseline?.statistics ?? context.negativeStatistics)
+        return VStack(alignment: .leading, spacing: 8) {
             RollBaselineControls(baseline: node.rollBaseline, parameters: node.parameters, selectedName: context.rollFrameName,
                 onMeasure: { context.onCustomAction?("measureRoll", nil) },
                 onChange: { context.onCustomAction?("setRoll", $0) })
-            NegativeDevelopControls(parameters: node.parameters, statistics: context.negativeStatistics,
+            NegativeDevelopControls(parameters: node.parameters, statistics: statistics,
                 onChange: context.onParameterChange)
         }
     }
