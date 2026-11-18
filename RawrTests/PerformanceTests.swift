@@ -7,6 +7,25 @@ import UniformTypeIdentifiers
 
 @Suite(.serialized)
 struct PerformanceTests {
+    @MainActor
+    @Test func `Long rolls retain recent logs with an advancing scroll identity`() async {
+        let kit = RawrKit()
+        for index in 0..<750 { kit.log("line \(index)") }
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(kit.logs.count == 500)
+        #expect(kit.logs.first?.message == "line 250")
+        let lastID = kit.logs.last?.id
+        kit.log("final frame")
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        #expect(kit.logs.count == 500)
+        #expect(kit.logs.last?.id != lastID)
+        #expect(kit.logs.last?.message == "final frame")
+    }
+
     @Test func `Canvas moves preserve the processing revision while image edits invalidate it`() {
         let input = NodeData(type: .imageInput, position: .zero)
         let effect = NodeData(type: .exposure, position: .zero)
@@ -222,6 +241,11 @@ struct PerformanceTests {
         if negative {
             var develop = NodeData(type: .negativeDevelop, position: .zero)
             for key in ["autoBase", "autoEndpoints", "autoBalance"] { develop.parameters[key] = 0 }
+            for channel in ["R", "G", "B"] {
+                develop.parameters["base" + channel] = 1
+                develop.parameters["low" + channel] = 0
+                develop.parameters["high" + channel] = 2
+            }
             nodes.append(develop)
         }
         nodes += [exposure, preview]

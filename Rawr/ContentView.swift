@@ -280,7 +280,7 @@ struct PreviewSectionView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onChange(of: rawrKit.logs.count) {
+            .onChange(of: rawrKit.logs.last?.id) {
                 if let lastLog = rawrKit.logs.last {
                     withAnimation {
                         proxy.scrollTo(lastLog.id, anchor: .bottom)
