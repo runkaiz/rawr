@@ -98,9 +98,9 @@ struct RollReduction {
     let gpuSeconds: Double
 
     static func reduce(_ summaries: [NegativeMeteringResult], context: ProcessingContext) async -> RollReduction? {
+        let start = ProcessInfo.processInfo.systemUptime
         guard !summaries.isEmpty, summaries.count <= 4096,
-              let function = context.shaderLibrary?.makeFunction(name: "negativeRollReduce"),
-              let pipeline = try? await context.device.makeComputePipelineState(function: function) else { return nil }
+              let pipeline = context.resources.pipeline("negativeRollReduce") else { return nil }
         let device = context.device, count = summaries.count
         guard let input = summaries.withUnsafeBytes({ bytes in
                   device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
@@ -118,6 +118,7 @@ struct RollReduction {
         encoder.endEncoding()
         command.commit()
         await command.completed()
+        context.trace.record("roll-reduction", since: start, device: context.device, command: command)
         guard command.status == .completed else { return nil }
         return RollReduction(statistics: output.contents().load(as: NegativeMeteringResult.self),
             frames: Array(UnsafeBufferPointer(start: flags.contents().assumingMemoryBound(to: SIMD4<Float>.self), count: count)),

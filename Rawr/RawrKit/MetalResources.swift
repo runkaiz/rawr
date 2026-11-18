@@ -97,7 +97,8 @@ final class MetalResources {
     private func recycle(_ texture: MTLTexture, key: TextureKey) {
         lock.lock()
         defer { lock.unlock() }
-        guard idleBytes + texture.allocatedSize <= idleByteLimit else { return }
+        guard texture.allocatedSize <= idleByteLimit else { return }
+        makeRoom(for: texture.allocatedSize)
         textures[key, default: []].append(texture)
         idleBytes += texture.allocatedSize
     }
@@ -105,9 +106,19 @@ final class MetalResources {
     private func recycle(_ buffer: MTLBuffer, key: BufferKey) {
         lock.lock()
         defer { lock.unlock() }
-        guard idleBytes + buffer.allocatedSize <= idleByteLimit else { return }
+        guard buffer.allocatedSize <= idleByteLimit else { return }
+        makeRoom(for: buffer.allocatedSize)
         buffers[key, default: []].append(buffer)
         idleBytes += buffer.allocatedSize
+    }
+
+    // Prefer the most recently completed resource when a large output would
+    // otherwise lose its slot to old small scratch allocations on every edit.
+    private func makeRoom(for bytes: Int) {
+        guard idleBytes + bytes > idleByteLimit else { return }
+        textures.removeAll()
+        buffers.removeAll()
+        idleBytes = 0
     }
 
     func trim() {

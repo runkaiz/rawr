@@ -59,8 +59,9 @@ enum NegativeImageIO {
             width: Int(bounds.width), height: Int(bounds.height), mipmapped: false)
         descriptor.storageMode = .private
         descriptor.usage = [.shaderRead, .shaderWrite]
-        guard let texture = context.device.makeTexture(descriptor: descriptor),
+        guard let lease = context.resources.texture(format: .rgba32Float, width: descriptor.width, height: descriptor.height),
               let command = context.commandQueue.makeCommandBuffer() else { throw ImageDecoder.DecodeError.invalidImage }
+        let texture = lease.texture
         context.linearCIContext.render(normalized, to: texture, commandBuffer: command, bounds: bounds, colorSpace: colorSpace)
         command.commit()
         awaitCompletion(command)
@@ -69,7 +70,7 @@ enum NegativeImageIO {
         var metadata = ImageMetadata(width: texture.width, height: texture.height, colorSpace: colorSpace)
         metadata.domain = .linearTransmittance
         metadata.sourceURL = url
-        return ImageData(texture: texture, metadata: metadata)
+        return ImageData(lease: lease, metadata: metadata)
     }
 
     private static func awaitCompletion(_ command: MTLCommandBuffer) {

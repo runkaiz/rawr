@@ -7,6 +7,7 @@ public actor GraphExecutor {
     private var processors: [NodeType: NodeProcessor] = [:]
     private var executing = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var remainingConsumers: [UUID: Int] = [:]
     private var executionCache: [UUID: [String: ImageData]] = [:]
 
     public init(context: ProcessingContext) {
@@ -54,6 +55,16 @@ public actor GraphExecutor {
         if let error = nodeGraph.validationError() {
             context.log(error, level: .error)
             return [:]
+        }
+        var reachable: Set<UUID> = []
+        func visit(_ id: UUID) {
+            guard reachable.insert(id).inserted else { return }
+            for edge in nodeGraph.connections where edge.toNodeId == id { visit(edge.fromNodeId) }
+        }
+        for node in nodeGraph.nodes where node.type == .preview { visit(node.id) }
+        remainingConsumers = [:]
+        for edge in nodeGraph.connections where reachable.contains(edge.toNodeId) {
+            remainingConsumers[edge.fromNodeId, default: 0] += 1
         }
         // Both cleanup and development operate on full-size linear float sources.
         context.negativeInputIDs = []
@@ -139,6 +150,14 @@ public actor GraphExecutor {
             }
         }
 
+        defer {
+            // Once all reachable consumers have encoded/completed, release the
+            // ancestor. Branches keep their input until the final consumer.
+            for edge in graph.connections where edge.toNodeId == node.id {
+                remainingConsumers[edge.fromNodeId, default: 1] -= 1
+                if remainingConsumers[edge.fromNodeId] == 0 { executionCache.removeValue(forKey: edge.fromNodeId) }
+            }
+        }
         // Validate inputs
         guard processor.canProcess(inputs: inputs, node: node) else {
             context.log("Node cannot be processed with available inputs", level: .error)

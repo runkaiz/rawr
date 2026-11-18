@@ -9,12 +9,13 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
         let node: NodeData
         let infrared: SourceIdentity?
     }
+    private var infraredCache: (key: SourceIdentity, texture: MTLTexture)?
     private var cached: (key: CacheKey, outputs: [String: ImageData])?
     private var pipelines: [String: MTLComputePipelineState] = [:]
     private let names = ["dustIRFit", "dustIRCorrect", "dustIRDilateX", "dustIRDilateY",
         "dustMask", "dustRepair"]
 
-    func clearCache() { cached = nil }
+    func clearCache() { cached = nil; infraredCache = nil }
 
     public init(context: ProcessingContext) {
         for name in names {
@@ -53,7 +54,14 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
                     context.trace.record("dust-cache", since: stageStart, device: context.device)
                     return cached.outputs
                 }
-                infrared = try InfraredImageIO.loadFrame(url: url, context: context)
+                if let existing = infraredCache, existing.key == infraredIdentity {
+                    infrared = existing.texture
+                } else {
+                    infraredCache = nil
+                    let texture = try InfraredImageIO.loadFrame(url: url, context: context)
+                    infrared = texture
+                    infraredCache = (try SourceIdentity(url), texture)
+                }
             } catch {
                 context.log("Infrared frame failed: \(error.localizedDescription)", level: .error)
                 return nil
