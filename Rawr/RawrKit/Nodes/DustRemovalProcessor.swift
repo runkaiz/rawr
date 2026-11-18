@@ -59,6 +59,7 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
                 } else {
                     infraredCache = nil
                     let texture = try InfraredImageIO.loadFrame(url: url, context: context)
+                    guard try SourceIdentity(url) == infraredIdentity else { return nil }
                     infrared = texture
                     infraredCache = (try SourceIdentity(url), texture)
                 }

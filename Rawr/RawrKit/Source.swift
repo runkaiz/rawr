@@ -351,6 +351,7 @@ public class RawrKit: ObservableObject {
                 return cached.image
             }
             let image = try NegativeImageIO.load(url: url, context: context)
+            guard try SourceIdentity(url) == key else { return nil }
             negativeSourceCache = (key, image)
             negativeSourceTexture = image.texture
             return image
@@ -737,6 +738,7 @@ public class RawrKit: ObservableObject {
     }
 
     private func saveOutput(_ output: ImageData, to url: URL, format: ExportFormat, replaceExisting: Bool = true) async -> Bool {
+        defer { withExtendedLifetime(output) {} }
         if let image = output.cgImage { return await saveImage(image, to: url, format: format, replaceExisting: replaceExisting) }
         guard let context = processingContext,
               let image = CIImage(mtlTexture: output.texture, options: [.colorSpace: NegativeImageIO.colorSpace]) else { return false }
