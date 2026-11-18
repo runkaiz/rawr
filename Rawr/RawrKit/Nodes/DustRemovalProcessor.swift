@@ -103,6 +103,7 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
         metadata.dustMaskPreview = parameters.controls.z == 1 ? maskImage : nil
         var maskMetadata = input.metadata
         maskMetadata.domain = .unspecified
+        maskMetadata.dustMaskPreview = nil
         return ["Output": ImageData(texture: output, metadata: metadata),
             "Mask": ImageData(texture: maskImage, metadata: maskMetadata)]
     }

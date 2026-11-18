@@ -12,7 +12,7 @@ retain their original complement shader and decode path.
 
 ## Input and output contract
 
-This node requires a direct source connection. Its source is decoded at native
+This node requires a source connection, optionally through [Dust Removal](dust-removal.md). Its source is decoded at native
 resolution with orientation applied once, then rendered directly by Core Image
 into a private `rgba32Float` Metal texture in extended linear sRGB. Tagged TIFF
 scanner captures are the precise calibration input; ImageIO/Core Image honor
