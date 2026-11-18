@@ -9,6 +9,7 @@ source before preview resampling, so local dust supports and global metering do
 not change with the preview size. Slider requests coalesce pending graph edits;
 only the latest pending edit renders. Explicit graph execution and export retain
 their FIFO result semantics, and superseded UI requests are not reported as errors.
+Canvas moves update document layout without submitting another GPU frame.
 
 ## Resource ownership and memory
 

@@ -352,18 +352,9 @@ struct PreviewSectionView: View {
             rawrKit.clearSourceImageCache()
             loadImageOrExecuteGraph()
         }
-        .task(id: folderInputNode?.parameters["selectedIndex"]) {
-            // Re-execute when selected image index changes
-            loadImageOrExecuteGraph()
-        }
-        .task(id: document.flowDocument?.nodeGraph.nodes.count) {
-            loadImageOrExecuteGraph()
-        }
-        .task(id: document.flowDocument?.nodeGraph.connections) {
-            loadImageOrExecuteGraph()
-        }
-        .task(id: document.flowDocument?.nodeGraph.nodes.hashValue) {
-            // Re-execute when any node parameters change (uses Equatable conformance)
+        .task(id: document.flowDocument?.nodeGraph.processingRevision) {
+            // Rendering follows image settings and wiring; moving a canvas node
+            // only updates its layout and does not submit another GPU frame.
             loadImageOrExecuteGraph()
         }
     }

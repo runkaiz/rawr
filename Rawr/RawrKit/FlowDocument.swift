@@ -36,6 +36,27 @@ public struct NodeGraph: Codable {
         self.nodes = nodes
         self.connections = connections
     }
+
+    /// Runtime invalidation key for processing. Canvas placement changes the
+    /// document layout without changing any image pixels; all controls, spots,
+    /// calibration, sources, ports and wiring still invalidate the preview.
+    public var processingRevision: Int {
+        var hasher = Hasher()
+        hasher.combine(nodes.count)
+        for var node in nodes {
+            node.position = .zero
+            hasher.combine(node)
+        }
+        hasher.combine(connections.count)
+        for edge in connections {
+            hasher.combine(edge.id)
+            hasher.combine(edge.fromNodeId)
+            hasher.combine(edge.fromOutput)
+            hasher.combine(edge.toNodeId)
+            hasher.combine(edge.toInput)
+        }
+        return hasher.finalize()
+    }
 }
 
 public struct SourceFileReference: Codable {

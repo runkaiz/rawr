@@ -7,6 +7,24 @@ import UniformTypeIdentifiers
 
 @Suite(.serialized)
 struct PerformanceTests {
+    @Test func `Canvas moves preserve the processing revision while image edits invalidate it`() {
+        let input = NodeData(type: .imageInput, position: .zero)
+        let effect = NodeData(type: .exposure, position: .zero)
+        var graph = NodeGraph(nodes: [input, effect])
+        let initial = graph.processingRevision
+        graph.nodes[0].position = CGPoint(x: 100, y: 200)
+        graph.nodes[1].position = CGPoint(x: -50, y: 300)
+        #expect(graph.processingRevision == initial)
+        graph.nodes[1].parameters["stops"] = 1
+        let edited = graph.processingRevision
+        #expect(edited != initial)
+        graph.connections = [Connection(fromNodeId: input.id, fromOutput: "Image", toNodeId: effect.id, toInput: "Input")]
+        #expect(graph.processingRevision != edited)
+        let wired = graph.processingRevision
+        graph.nodes[0].imageURL = URL(fileURLWithPath: "/another/source.tiff")
+        #expect(graph.processingRevision != wired)
+    }
+
     private func context() throws -> ProcessingContext {
         let device = try #require(MTLCreateSystemDefaultDevice())
         return ProcessingContext(device: device, commandQueue: try #require(device.makeCommandQueue()), ciContext: CIContext(mtlDevice: device))
