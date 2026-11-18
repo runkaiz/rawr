@@ -185,7 +185,9 @@ struct DustRemovalTests {
         let cached = ImageData(texture: resultTexture, cgImage: after, metadata: metadata)
         let terminal = try #require(await PreviewProcessor().process(inputs: ["Input": cached],
             node: NodeData(type: .preview, position: .zero), context: ctx)?["Output"])
-        #expect(terminal.cgImage?.dataProvider?.data == mask.dataProvider?.data)
+        let terminalBytes = try #require(terminal.cgImage?.dataProvider?.data) as Data
+        let maskBytes = try #require(mask.dataProvider?.data) as Data
+        #expect(terminalBytes == maskBytes)
         let view = HStack(alignment: .top, spacing: 16) {
             VStack(alignment: .leading) {
                 Label("Dust Removal", systemImage: node.type.icon).font(.headline)
