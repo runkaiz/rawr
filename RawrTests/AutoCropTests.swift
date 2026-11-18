@@ -215,9 +215,53 @@ struct AutoCropTests {
         #expect(error < 0.0002)
     }
 
+    @Test func `Folder batch uses one persisted roll size with per-frame corrections`() async throws {
+        let ctx = try context()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("CropRollTests-\(UUID())")
+        let folder = root.appendingPathComponent("inputs"), exports = root.appendingPathComponent("exports")
+        try FileManager.default.createDirectory(at: folder,withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: exports,withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (i,angle) in [0.0,3.5].enumerated() {
+            let input = try fixture(ctx,degrees: angle,centerX: i == 0 ? 0.5 : 0.525)
+            let image = try #require(NegativeImageIO.boundaryImage(input.texture,context: ctx.linearCIContext))
+            let destination = try #require(CGImageDestinationCreateWithURL(folder.appendingPathComponent("frame\(i).tiff") as CFURL,UTType.tiff.identifier as CFString,1,nil))
+            CGImageDestinationAddImage(destination,image,nil)
+            try #require(CGImageDestinationFinalize(destination))
+        }
+        var source = NodeData(type: .folderInput,position: .zero)
+        source.imageURL = folder
+        var crop = NodeData(type: .autoCrop,position: .zero)
+        crop.autoCrop?.rollSize = CropGeometry(width: 0.65,height: 0.5)
+        crop.autoCrop?.rollSourceWidth = 640
+        crop.autoCrop?.rollSourceHeight = 480
+        crop.autoCrop?.frameOffsets[folder.appendingPathComponent("frame1.tiff").path] = CropOffset(x: 0.005,y: -0.005,degrees: 0.25)
+        let preview = NodeData(type: .preview,position: .zero)
+        let graph = NodeGraph(nodes: [source,crop,preview],connections: [
+            Connection(fromNodeId: source.id,fromOutput: "Image",toNodeId: crop.id,toInput: "Input"),
+            Connection(fromNodeId: crop.id,fromOutput: "Output",toNodeId: preview.id,toInput: "Input")])
+        let restored = try JSONDecoder().decode(NodeGraph.self,from: JSONEncoder().encode(graph))
+        let kit = RawrKit()
+        try #require(await kit.exportFolderBatch(restored,to: exports))
+        let urls = try FileManager.default.contentsOfDirectory(at: exports,includingPropertiesForKeys: nil)
+        #expect(urls.count == 2)
+        for url in urls {
+            let image = try ImageDecoder(context: ctx.ciContext).decode(url: url)
+            #expect(image.width == 416)
+            #expect(image.height == 240)
+        }
+        let result = try #require(kit.cropResults[crop.id])
+        #expect(abs(result.applied.centerX-result.proposal.centerX-0.005) < 1e-8)
+        #expect(abs(result.applied.degrees-result.proposal.degrees-0.25) < 1e-8)
+    }
+
     @Test func `Auto Crop controls render headlessly`() async throws {
         let ctx = try context()
-        let result = try #require(await AutoCropDetector(context: ctx).analyze(fixture(ctx,degrees: 3.5)))
+        let input = try fixture(ctx,degrees: 3.5)
+        let result = try #require(await AutoCropDetector(context: ctx).analyze(input))
+        let cropped = try #require(await AutoCropProcessor(context: ctx).process(inputs: ["Input": input],node: NodeData(type: .autoCrop,position: .zero),context: ctx)?["Output"])
+        let before = try #require(NegativeImageIO.boundaryImage(input.texture,context: ctx.linearCIContext))
+        let after = try #require(NegativeImageIO.boundaryImage(cropped.texture,context: ctx.linearCIContext))
         var settings = AutoCropSettings()
         settings.rollSize = result.proposal
         let view = HStack(alignment: .top,spacing: 24) {
@@ -225,7 +269,9 @@ struct AutoCropTests {
                 .frame(width: 245)
             VStack {
                 Text("Source frame and straightened crop").font(.headline)
-                CropOutline(geometry: result.proposal,sourceWidth: 640,sourceHeight: 480).frame(width: 400,height: 300)
+                Image(decorative: before,scale: 1).resizable().scaledToFit().frame(width: 400,height: 280)
+                Text("Straightened output").font(.headline)
+                Image(decorative: after,scale: 1).resizable().scaledToFit().frame(width: 400,height: 280)
                 Text("Synthetic holder, sprocket and light-leak fixture").font(.caption)
             }
         }.padding().background(.background).frame(width: 740,height: 760)
