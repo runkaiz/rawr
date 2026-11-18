@@ -53,6 +53,8 @@ public class NodeUIFactory {
             ]
         ))
 
+        register(descriptor: NodeUIDescriptor(nodeType: .negativeDevelop, components: [NegativeDevelopComponent()]))
+
         // Exposure Node
         register(descriptor: NodeUIDescriptor(
             nodeType: .exposure,

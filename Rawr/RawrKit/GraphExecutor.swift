@@ -25,6 +25,7 @@ public actor GraphExecutor {
             ImageInputProcessor(),
             FolderInputProcessor(),
             InversionProcessor(context: context),
+            NegativeDevelopProcessor(context: context),
             ExposureProcessor(context: context),
             GammaProcessor(context: context),
             DenoiseProcessor(context: context),
@@ -47,6 +48,18 @@ public actor GraphExecutor {
         if let error = nodeGraph.validationError() {
             context.log(error, level: .error)
             return [:]
+        }
+        // This slice has an explicit decode contract: development connects directly
+        // to a source, never to a legacy complement/gamma/half-processing node.
+        context.negativeInputIDs = []
+        for node in nodeGraph.nodes where node.type == .negativeDevelop {
+            guard let edge = nodeGraph.connections.first(where: { $0.toNodeId == node.id }),
+                  let source = nodeGraph.nodes.first(where: { $0.id == edge.fromNodeId }),
+                  source.type == .imageInput || source.type == .folderInput else {
+                context.log("Negative Develop requires a direct Image Input or Folder Input connection", level: .error)
+                return [:]
+            }
+            context.negativeInputIDs.insert(source.id)
         }
         context.log("Starting graph execution with \(nodeGraph.nodes.count) nodes")
 

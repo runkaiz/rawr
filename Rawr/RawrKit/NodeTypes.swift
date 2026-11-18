@@ -5,6 +5,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
     case imageInput = "Image Input"
     case folderInput = "Folder Input"
     case inversion = "Inversion"
+    case negativeDevelop = "Negative Develop"
     case exposure = "Exposure"
     case gamma = "Gamma"
     case denoise = "Denoise"
@@ -17,6 +18,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .imageInput: return "photo"
         case .folderInput: return "folder"
         case .inversion: return "circle.lefthalf.filled"
+        case .negativeDevelop: return "camera.filters"
         case .exposure: return "sun.max"
         case .gamma: return "slider.horizontal.3"
         case .denoise: return "waveform.path"
@@ -31,7 +33,7 @@ public enum NodeType: String, Codable, CaseIterable, Hashable {
         case .imageInput: return 1
         case .folderInput: return 1
         case .preview: return 1
-        case .inversion, .exposure, .gamma, .denoise, .sharpening, .combination: return nil
+        case .negativeDevelop, .inversion, .exposure, .gamma, .denoise, .sharpening, .combination: return nil
         }
     }
 }
@@ -57,6 +59,10 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
         case .folderInput:
             self.outputs = ["Image"]
             self.parameters = ["selectedIndex": 0.0] // Default: first image in folder
+        case .negativeDevelop:
+            self.inputs = ["Input"]
+            self.outputs = ["Output"]
+            self.parameters = NegativeDevelopParameters.defaults
         case .inversion:
             self.inputs = ["Input"]
             self.outputs = ["Output"]
@@ -106,6 +112,10 @@ public struct NodeData: Identifiable, Codable, Equatable, Hashable {
 
         // Set expected inputs/outputs based on type
         switch type {
+        case .negativeDevelop:
+            inputs = ["Input"]
+            outputs = ["Output"]
+            parameters.merge(NegativeDevelopParameters.defaults) { saved, _ in saved }
         case .imageInput:
             outputs = ["Image"]
         case .folderInput:

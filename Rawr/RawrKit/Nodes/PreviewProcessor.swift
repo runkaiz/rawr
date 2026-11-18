@@ -1,5 +1,6 @@
 import Foundation
 import Metal
+import CoreImage
 
 // MARK: - Preview Processor
 
@@ -17,7 +18,13 @@ public class PreviewProcessor: MetalNodeProcessor {
 
         context.log("Preview node processed: \(inputData.metadata.width)x\(inputData.metadata.height)")
 
-        // Preview just passes through the input
-        return ["Output": inputData]
+        // A CPU image is created only at this terminal boundary for GPU-only paths.
+        guard inputData.cgImage == nil else { return ["Output": inputData] }
+        let limit = context.logger.map { $0.isFullResolutionMode ? nil : $0.maxPreviewDimension } ?? nil
+        guard let image = NegativeImageIO.boundaryImage(inputData.texture, context: context.linearCIContext, maxDimension: limit) else {
+            context.log("Failed to render terminal image", level: .error)
+            return nil
+        }
+        return ["Output": ImageData(texture: inputData.texture, cgImage: image, metadata: inputData.metadata)]
     }
 }

@@ -60,8 +60,8 @@ Always build after code changes to verify compilation.
 
 ## Metal GPU Acceleration
 
-All image processing uses Metal compute shaders (rgba16Float textures). Shaders in `RawrKit/Shaders/`:
-- `InversionShader.metal`, `ExposureShader.metal`, `GammaShader.metal`, `DenoiseShader.metal`, `CombinationShader.metal`
+Image processing uses Metal compute shaders (legacy rgba16Float textures; Negative Develop uses rgba32Float). Shaders in `RawrKit/Shaders/`:
+- `InversionShader.metal`, `ExposureShader.metal`, `GammaShader.metal`, `DenoiseShader.metal`, `CombinationShader.metal`, `NegativeDevelopShader.metal`
 
 **Source image caching**: `ImageInputProcessor` caches loaded images; `executeGraph()` reuses cached images for "Before" preview. Cache clears when image URL changes.
 
