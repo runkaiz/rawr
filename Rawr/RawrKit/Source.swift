@@ -6,6 +6,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 public class RawrKit: ObservableObject {
+    @Published var cropResults: [UUID: AutoCropResult] = [:]
     @Published var negativeStatistics: [UUID: NegativeMeteringResult] = [:]
     @Published public var isProcessing = false
     @Published public var logs: [LogEntry] = []
@@ -277,7 +278,7 @@ public class RawrKit: ObservableObject {
             log("No preview outputs generated", level: .warning)
             return false
         }
-        if graph.nodes.contains(where: { $0.type == .negativeDevelop || $0.type == .dustRemoval }), let texture = negativeSourceTexture {
+        if graph.nodes.contains(where: { $0.type == .negativeDevelop || $0.type == .dustRemoval || $0.type == .autoCrop }), let texture = negativeSourceTexture {
             previewImage = NegativeImageIO.boundaryImage(texture, context: processingContext?.linearCIContext ?? ciContext, maxDimension: maxPreviewDimension)
         } else if let before = await getSourceImage(from: graph) {
             previewImage = createPreview(from: before)
@@ -436,6 +437,7 @@ public class RawrKit: ObservableObject {
     public func clearSourceImageCache() {
         negativeSourceCache = nil
         negativeStatistics = [:]
+        cropResults = [:]
         cachedSourceImage = nil
         cachedSourceURL = nil
         log("Source image cache cleared")

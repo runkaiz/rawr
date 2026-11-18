@@ -16,6 +16,7 @@ public protocol NodeUIComponent {
 /// Context passed to UI components for interaction with the node system
 public struct NodeUIContext {
     /// Callback to update node parameters
+    var cropResult: AutoCropResult? = nil
     var negativeStatistics: NegativeMeteringResult? = nil
     var rollFrameName: String? = nil
 
