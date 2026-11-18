@@ -713,8 +713,7 @@ public class RawrKit: ObservableObject {
                     try FileManager.default.moveItem(at: temporary, to: url)
                 }
             } else {
-                // Hard-link creation is atomic and fails if the destination exists.
-                try FileManager.default.linkItem(at: temporary, to: url)
+                try BatchDestinations.install(temporary: temporary, destination: url)
             }
         } catch {
             log("Failed to install export: \(error.localizedDescription)", level: .error)

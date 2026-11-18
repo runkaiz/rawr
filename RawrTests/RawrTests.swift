@@ -158,6 +158,22 @@ struct RawrTests {
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("bad.png").path))
     }
 
+    @Test func `A destination created after preflight is never replaced`() throws {
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = try #require(BatchDestinations.plan(inputs: [root.appendingPathComponent("same.png")], folder: root, extension: "png").first)
+        let temporary = root.appendingPathComponent("staged")
+        let sentinel = Data("late arrival".utf8)
+        try sentinel.write(to: destination)
+        try Data("processed".utf8).write(to: temporary)
+        #expect(throws: (any Error).self) { try BatchDestinations.install(temporary: temporary, destination: destination) }
+        #expect(try Data(contentsOf: destination) == sentinel)
+        try FileManager.default.removeItem(at: destination)
+        try BatchDestinations.install(temporary: temporary, destination: destination)
+        #expect(try Data(contentsOf: destination) == Data("processed".utf8))
+        #expect(!FileManager.default.fileExists(atPath: temporary.path))
+    }
+
     @Test func `Cyclic documents are rejected before processing including disconnected cycles`() async throws {
         let a = NodeData(type: .inversion, position: .zero)
         let b = NodeData(type: .exposure, position: .zero)
