@@ -65,7 +65,9 @@ enum InfraredImageIO {
             let type = try integer(entry + 2, 2), n = try integer(entry + 4, 4)
             guard [1,3,4].contains(type), n <= 1_000_000 else { throw ImageDecoder.DecodeError.invalidImage }
             let size = type == 3 ? 2 : (type == 4 ? 4 : 1)
-            let base = n * size <= 4 ? entry + 8 : try integer(entry + 8, 4)
+            let base: Int
+            if n * size <= 4 { base = entry + 8 }
+            else { base = try integer(entry + 8, 4) }
             tags[tag] = try (0..<n).map { try integer(base + $0 * size, size) }
         }
         guard tags[277] == [4], tags[262] == [2], tags[338] == [0] else { return nil }

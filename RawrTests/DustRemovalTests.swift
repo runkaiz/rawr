@@ -173,9 +173,9 @@ struct DustRemovalTests {
             }.frame(width: 245)
             VStack {
                 Text("Before / Repaired / Mask")
-                ForEach([before, after, mask], id: \.self) { image in
-                    Image(decorative: image, scale: 1).resizable().interpolation(.none).scaledToFit().frame(width: 350, height: 190)
-                }
+                Image(decorative: before, scale: 1).resizable().interpolation(.none).scaledToFit().frame(width: 350, height: 190)
+                Image(decorative: after, scale: 1).resizable().interpolation(.none).scaledToFit().frame(width: 350, height: 190)
+                Image(decorative: mask, scale: 1).resizable().interpolation(.none).scaledToFit().frame(width: 350, height: 190)
             }
         }.padding().frame(width: 660, height: 760).background(.background)
         let host = NSHostingView(rootView: view)
