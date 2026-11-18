@@ -39,6 +39,7 @@ public struct RollBaseline: Codable, Equatable, Hashable, Sendable {
         var result = node
         if !frame.optOut {
             for group in ["Base", "Endpoints", "Balance"] where node["auto" + group] == 1 {
+                guard calibration["auto" + group] != 1 else { continue }
                 for key in Self.keys(group) { result[key] = calibration[key] }
                 result["auto" + group] = 0
             }

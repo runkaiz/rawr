@@ -8,6 +8,74 @@ struct MeterConfig { uint4 grid; float4 base; }; // width, height, sample count,
 constant uint bins = 4096;
 constant float logRange = 7.25f; // log10 transmission [-6, 1.25]
 
+struct BaseCandidate { float4 base, location; };
+// Search narrow local strips, rather than demanding that an entire outer band
+// be clear film. 40 offsets x 8 nonoverlapping segments x 4 canvas edges.
+kernel void negativeMeterBaseCandidates(texture2d<float,access::read> image [[texture(0)]],
+    device BaseCandidate *output [[buffer(0)]], uint i [[thread_position_in_grid]]) {
+    if(i>=1280) return;
+    uint side=i/320, offset=(i%320)/8, segment=i%8;
+    float2 size(image.get_width(),image.get_height());
+    float3 sum(0), square(0), normal[3]={float3(0),float3(0),float3(0)};
+    uint count=0;
+    for(uint n=0;n<3;++n) for(uint j=0;j<64;++j) {
+        float across=(float(offset)+0.5f)/40.0f*0.12f+(float(n)-1.0f)*0.0012f;
+        float along=0.04f+(float(segment)+(float(j)+0.5f)/64.0f)/8.0f*0.92f;
+        float2 uv=side<2 ? float2(side==0 ? across:1-across,along) :
+            float2(along,side==2 ? across:1-across);
+        if(any(uv<=0) || any(uv>=1)) continue;
+        float4 p=image.read(min(uint2(uv*size),uint2(size)-1));
+        float3 v=p.rgb/max(p.a,1e-6f);
+        if(!all(isfinite(p)) || p.a<0.99f || any(v<=1e-5f) || any(v>=0.995f)) continue;
+        sum+=v; square+=v*v; normal[n]+=v/64.0f; ++count;
+    }
+    float3 mean=sum/max(1u,count);
+    float3 cv=sqrt(max(float3(0),square/max(1u,count)-mean*mean))/max(mean,1e-6f);
+    float flat=max(max(cv.x,cv.y),cv.z);
+    float3 trend=abs(normal[0]-normal[2])/max(mean,1e-6f);
+    bool valid=count==192 && flat<0.04f && all(trend<0.012f);
+    output[i]={float4(mean,valid ? clamp(1-flat/0.08f,0.0f,1.0f):0),float4(side,segment,offset,0)};
+}
+
+kernel void negativeMeterBaseSelect(texture2d<float,access::read> image [[texture(0)]],
+    device const BaseCandidate *candidates [[buffer(0)]], device MeterResult &r [[buffer(1)]],
+    uint i [[thread_position_in_grid]]) {
+    if(i) return;
+    float3 interior(0); uint valid=0;
+    for(uint j=0;j<256;++j) {
+        float2 uv=0.15f+(float2(j%16,j/16)+0.5f)/16.0f*0.7f;
+        float4 p=image.read(uint2(uv*float2(image.get_width(),image.get_height())));
+        if(all(isfinite(p)) && p.a>0.99f) { interior+=p.rgb/p.a; ++valid; }
+    }
+    interior/=max(1u,valid);
+    float best=-1e6f;
+    for(uint a=0;a<1280;++a) {
+        BaseCandidate p=candidates[a];
+        if(p.base.w==0 || !all(p.base.rgb>interior*1.08f)) continue;
+        uint sides=0,segments=0; float3 sum(0); float confidence=0; uint count=0;
+        for(uint b=0;b<1280;++b) {
+            BaseCandidate q=candidates[b];
+            if(q.base.w==0 || any(abs(q.base.rgb-p.base.rgb)/max(p.base.rgb,1e-6f)>0.035f)) continue;
+            // One vote per segment prevents a wide strip at adjacent offsets
+            // from fabricating independent support.
+            if(q.location.x==p.location.x) {
+                uint bit=1u<<uint(q.location.y);
+                if(segments&bit) continue;
+                segments|=bit;
+            }
+            sides|=1u<<uint(q.location.x);
+            sum+=q.base.rgb; confidence+=q.base.w; ++count;
+        }
+        if(popcount(segments)<2 || count<2) continue;
+        float score=dot(log(max(p.base.rgb,1e-6f)),float3(1));
+        if(score>best) {
+            best=score;
+            float support=popcount(sides)>=2 ? 1.0f:0.75f;
+            r.base=float4(sum/float(count),confidence/float(count)*support);
+        }
+    }
+}
+
 kernel void negativeMeterSample(texture2d<float, access::read> image [[texture(0)]],
     device float4 *samples [[buffer(0)]], constant MeterConfig &cfg [[buffer(1)]],
     uint i [[thread_position_in_grid]]) {
@@ -39,7 +107,7 @@ kernel void negativeMeterHistogram(device const float4 *samples [[buffer(0)]],
         if (p.w == 0 || (phase == 0 && p.w != 2) || (phase != 0 && p.w != 1)) continue;
         float base = cfg.grid.w ? r.base[group.y] : cfg.base[group.y];
         float value = phase == 2 ? -precise::log10(p[group.y] / max(base, 1e-6f)) : precise::log10(p[group.y]);
-        float coordinate = phase == 2 ? value / 6.0f : (value + 6.0f) / logRange;
+        float coordinate = phase == 2 ? (value + 1.0f) / 7.0f : (value + 6.0f) / logRange;
         uint b = uint(clamp(coordinate * float(bins), 0.0f, float(bins-1)));
         atomic_fetch_add_explicit(&histogram[b], 1, memory_order_relaxed);
     }
@@ -79,6 +147,7 @@ kernel void negativeMeterSelect(device const uint *hist [[buffer(0)]], device Me
         uint count;
         device const uint *h = hist + c * bins;
         if (phase == 0) {
+            if(r.base.w>0) { r.quality[c]=r.base.w; continue; }
             float median = quantile(h, 0.5f, count), bright = quantile(h, 0.9f, count);
             r.base[c] = precise::pow(10.0f, bright * logRange - 6.0f);
             // A flat bright border supports a base; scene-filled edges do not.
@@ -88,8 +157,8 @@ kernel void negativeMeterSelect(device const uint *hist [[buffer(0)]], device Me
             if (min(min(r.quality.x, r.quality.y), r.quality.z) < 0.5f)
                 r.base[c] = precise::pow(10.0f, bright * logRange - 6.0f);
         } else {
-            r.low[c] = quantile(h, 0.01f, count) * 6.0f;
-            r.high[c] = max(r.low[c] + 0.01f, quantile(h, 0.99f, count) * 6.0f);
+            r.low[c] = quantile(h, 0.01f, count) * 7.0f - 1.0f;
+            r.high[c] = max(r.low[c] + 0.01f, quantile(h, 0.99f, count) * 7.0f - 1.0f);
         }
     }
 }
@@ -110,7 +179,7 @@ kernel void negativeMeterMoments(device const float4 *samples [[buffer(0)]], dev
         if (p.w != 1) continue;
         float3 v = -precise::log10(p.rgb / base);
         float3 n = (v - r.low.rgb) / (r.high.rgb - r.low.rgb);
-        if (any(v < 0) || any(v > 6)) d.w += 1;
+        if (any(v < -1) || any(v > 6)) d.w += 1;
         if (any(n < 0.1f) || any(n > 0.9f) || max(max(n.x,n.y),n.z)-min(min(n.x,n.y),n.z) > 0.12f) continue;
         a += float4(v, 1);
         b += float4(v.y*v.y, v.x*v.y, v.z*v.y, v.x*v.x);
@@ -128,11 +197,12 @@ kernel void negativeMeterFit(device const float4 *moments [[buffer(0)]], device 
     }
     float valid = d.y / float(cfg.grid.z);
     float borderSupport = clamp(d.z / max(1.0f, float(cfg.grid.z)*0.19f), 0.0f, 1.0f);
-    r.base.w = min(min(r.quality.x,r.quality.y),r.quality.z) * borderSupport * valid;
-    r.low.w = valid * clamp((r.high.y-r.low.y)/0.5f,0.0f,1.0f) * clamp(a.w/64.0f,0.0f,1.0f) *
+    r.base.w = max(r.base.w,min(min(r.quality.x,r.quality.y),r.quality.z) * borderSupport) * valid;
+    r.low.w = valid * clamp((r.high.y-r.low.y)/0.5f,0.0f,1.0f) *
         clamp(1.0f-d.w/max(1.0f,d.y),0.0f,1.0f);
     // Uncertain automatic base limits confidence in all derived calibration.
-    r.low.w *= cfg.grid.w ? (0.25f + 0.75f * r.base.w) : 1.0f;
+    float baseTrust=cfg.grid.w ? r.base.w : (cfg.base.w>0 ? cfg.base.w:1.0f);
+    r.low.w *= 0.25f + 0.75f * baseTrust;
     r.high.w = r.low.w;
     float n = max(1.0f, a.w), variance = b.x - a.y*a.y/n;
     float3 slope(1), offset(0);
@@ -142,8 +212,12 @@ kernel void negativeMeterFit(device const float4 *moments [[buffer(0)]], device 
         offset = a.rgb/n - slope*a.y/n;
         float residual = max(0.0f, b.w-a.x*a.x/n-slope.x*slope.x*variance) +
             max(0.0f, d.x-a.z*a.z/n-slope.z*slope.z*variance);
-        confidence = r.low.w * clamp(a.w/max(1.0f,d.y-d.z)/0.25f,0.0f,1.0f) *
-            clamp(1.0f-sqrt(residual/n)/0.05f,0.0f,1.0f);
+        // Require sample support and useful density leverage. Residual is
+        // relative to scene span: real grain is not a fixed 0.05 D failure.
+        float rms=sqrt(residual/(2.0f*n));
+        float relative=rms/max(0.1f,r.high.y-r.low.y);
+        confidence = r.low.w * clamp(a.w/512.0f,0.0f,1.0f) *
+            clamp(variance/n/0.01f,0.0f,1.0f) * exp(-0.5f*pow(relative/0.08f,2.0f));
         if (any(slope < 0.25f) || any(slope > 4.0f) || any(abs(offset) > 1.0f)) confidence = 0;
     }
     // Do not apply an unsupported axis. Confidence remains visible for review.

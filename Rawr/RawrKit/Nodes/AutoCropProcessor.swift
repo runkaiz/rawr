@@ -86,7 +86,14 @@ actor AutoCropDetector {
         var result = AutoCropResult(proposal: geometry, applied: geometry, confidence: confidence,
             source: input.metadata.sourceURL, sourceWidth: width, sourceHeight: height,
             gpuSeconds: command.gpuEndTime - command.gpuStartTime)
-        if result.accepted, let border = await borderBase(input, geometry: raw) { result.borderBase = border }
+        if result.accepted {
+            if let border = await borderBase(input, geometry: raw) { result.borderBase = border }
+            if result.borderBase.w < 0.5,
+               let measured = await NegativeMetering(context:context).analyze(input,parameters:["autoBase":1]),
+               measured.result.base.w >= 0.5 {
+                result.borderBase = measured.result.base
+            }
+        }
         cache[input.contentID] = result
         order.append(input.contentID)
         if order.count > 4 { cache.removeValue(forKey: order.removeFirst()) }
