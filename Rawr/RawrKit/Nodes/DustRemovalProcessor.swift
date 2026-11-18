@@ -51,7 +51,7 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
                 infraredIdentity = try SourceIdentity(url)
                 let key = CacheKey(source: input.contentID, node: node, infrared: infraredIdentity)
                 if let cached, cached.key == key {
-                    context.trace.record("dust-cache", since: stageStart, device: context.device)
+                    context.trace.record("dust-cache", since: stageStart, device: context.device, cached: true)
                     return cached.outputs
                 }
                 if let existing = infraredCache, existing.key == infraredIdentity {
@@ -70,7 +70,7 @@ public final class DustRemovalProcessor: MetalNodeProcessor {
         }
         let cacheKey = CacheKey(source: input.contentID, node: node, infrared: infraredIdentity)
         if let cached, cached.key == cacheKey {
-            context.trace.record("dust-cache", since: stageStart, device: context.device)
+            context.trace.record("dust-cache", since: stageStart, device: context.device, cached: true)
             return cached.outputs
         }
         // Release the previous frame before allocating another full-size result.

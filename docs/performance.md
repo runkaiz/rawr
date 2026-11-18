@@ -86,7 +86,7 @@ private scans. Fixture generation is excluded from reported scenario time.
 JSON contains total wall time for cold preview, each exposure-slider edit,
 single TIFF export, 36-frame TIFF export and roll calibration. Events report
 stage wall time, available completed-command GPU timestamps, and Metal allocated
-bytes. Cache hits are named explicitly. Core Image's implicit preview/file-write
+bytes. Cache hits are named explicitly and report zero GPU work. Core Image's implicit preview/file-write
 GPU work has no command timestamp and is included in boundary wall time; an
 absent GPU value means unavailable, not zero. Metering wall time is nested in
 development wall time, so stage wall times must not be summed. Scenario RSS is

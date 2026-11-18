@@ -293,12 +293,20 @@ public class RawrKit: ObservableObject {
             log("No preview outputs generated", level: .warning)
             return false
         }
+        let beforeStart = ProcessInfo.processInfo.systemUptime
+        var reusedBefore = false
+        defer {
+            if let context = processingContext {
+                context.trace.record(reusedBefore ? "before-cache" : "before-preview", since: beforeStart,
+                    device: context.device, cached: reusedBefore)
+            }
+        }
         if graph.nodes.contains(where: { $0.type == .negativeDevelop || $0.type == .dustRemoval }), let texture = negativeSourceTexture {
             let identity = ObjectIdentifier(texture)
-            if beforePreviewKey?.texture != identity || beforePreviewKey?.limit != maxPreviewDimension {
+            if beforePreviewKey?.texture != identity || beforePreviewKey?.limit != maxPreviewDimension || previewImage == nil {
                 previewImage = NegativeImageIO.boundaryImage(texture, context: processingContext?.linearCIContext ?? ciContext, maxDimension: maxPreviewDimension)
                 beforePreviewKey = (identity, maxPreviewDimension)
-            }
+            } else { reusedBefore = true }
         } else if let before = await getSourceImage(from: graph) {
             previewImage = createPreview(from: before)
         }
@@ -359,12 +367,14 @@ public class RawrKit: ObservableObject {
 
     /// Full-size float decode and GPU upload; no CPU image is made between stages.
     internal func loadNegativeSource(at url: URL, context: ProcessingContext) -> ImageData? {
+        let start = ProcessInfo.processInfo.systemUptime
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
             let key = try SourceIdentity(url)
             if let cached = negativeSourceCache, cached.key == key {
                 negativeSourceTexture = cached.image.texture
+                context.trace.record("source-cache", since: start, device: context.device, cached: true)
                 return cached.image
             }
             let image = try NegativeImageIO.load(url: url, context: context)

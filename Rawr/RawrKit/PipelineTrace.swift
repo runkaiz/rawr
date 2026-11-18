@@ -14,9 +14,9 @@ final class PipelineTrace {
     private var storage: [Event] = []
     var enabled = false
 
-    func record(_ stage: String, since start: Double, device: MTLDevice, command: MTLCommandBuffer? = nil) {
+    func record(_ stage: String, since start: Double, device: MTLDevice, command: MTLCommandBuffer? = nil, cached: Bool = false) {
         guard enabled else { return }
-        let gpu = command.flatMap { $0.gpuEndTime > $0.gpuStartTime ? $0.gpuEndTime - $0.gpuStartTime : nil }
+        let gpu: Double? = cached ? 0 : command.flatMap { $0.gpuEndTime > $0.gpuStartTime ? $0.gpuEndTime - $0.gpuStartTime : nil }
         let event = Event(stage: stage, wallSeconds: ProcessInfo.processInfo.systemUptime - start,
             gpuSeconds: gpu, allocatedBytes: device.currentAllocatedSize)
         lock.lock()

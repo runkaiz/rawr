@@ -78,7 +78,7 @@ actor NegativeMetering {
         let autoBase = parameters["autoBase"] == 1
         let key = Key(source: input.contentID, base: autoBase ? .zero : manual.base)
         if let cached = cache[key] {
-            context.trace.record("meter-cache", since: stageStart, device: context.device)
+            context.trace.record("meter-cache", since: stageStart, device: context.device, cached: true)
             return cached
         }
         let width = min(512, input.texture.width), height = min(512, input.texture.height)
