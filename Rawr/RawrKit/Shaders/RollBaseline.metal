@@ -54,7 +54,9 @@ kernel void negativeRollBase(device const RollMeter *input [[buffer(0)]],
         result[c]=rollMedian(scratch,n);
     }
     result.xz*=result.y;
-    result.w*=float(included)/float(max(1u,candidates));
+    // Confidence describes the retained optical estimate. Scene coverage is
+    // assessed separately by negativeRollReduce; an outlier does not reduce
+    // the precision of otherwise agreeing reference measurements.
     output=result;
 }
 

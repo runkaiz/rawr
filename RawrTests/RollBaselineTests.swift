@@ -184,6 +184,7 @@ struct RollBaselineTests {
         roll.version = 99
         #expect(roll.parameters(for: url, node: node.parameters) == nil)
         roll.version = 1
+        roll.frames[0].optOut = false
         #expect(roll.parameters(for:url,node:node.parameters)?["rollRelativeDensity"]==0)
         try Data([1,2]).write(to: url)
         #expect(roll.parameters(for: url, node: node.parameters) == nil)

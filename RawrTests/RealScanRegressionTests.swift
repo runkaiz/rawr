@@ -203,6 +203,10 @@ struct RealScanRegressionTests {
         #expect(abs(shared.x-good.base.x)<0.0001 && shared.w>=0.5)
         let absent=try #require(await RollReduction.baseReference([noBorder,noBorder,noBorder],context:ctx))
         #expect(absent.w==0)
+        var alien=good;alien.base.x *= 2
+        let robust=try #require(await RollReduction.baseReference([good,good,good,alien],context:ctx))
+        #expect(abs(robust.x-good.base.x)<0.0001)
+        #expect(abs(robust.w-good.base.w)<0.0001)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
         defer { try? FileManager.default.removeItem(at:root) }
