@@ -18,7 +18,8 @@ struct RollBaselineTests {
     }
 
     private func fixture(_ context: ProcessingContext, shift: Float = 0, mode: Float = 0,
-                         width: Int = 256, height: Int = 256, texture existing: MTLTexture? = nil) async throws -> ImageData {
+                         width: Int = 256, height: Int = 256, texture existing: MTLTexture? = nil,
+                         gain: Float = 1) async throws -> ImageData {
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: width, height: height, mipmapped: false)
         descriptor.storageMode = .private; descriptor.usage = [.shaderRead, .shaderWrite]
         let texture = try #require(existing ?? context.device.makeTexture(descriptor: descriptor))
@@ -26,7 +27,7 @@ struct RollBaselineTests {
         let pipeline = try await context.device.makeComputePipelineState(function: function)
         let command = try #require(context.commandQueue.makeCommandBuffer())
         let encoder = try #require(command.makeComputeCommandEncoder())
-        var config = SIMD4<Float>(shift, mode, 0, 0)
+        var config = SIMD4<Float>(shift, mode, log2(gain), 0)
         encoder.setComputePipelineState(pipeline); encoder.setTexture(texture, index: 0)
         encoder.setBytes(&config, length: 16, index: 0)
         encoder.dispatchThreads(MTLSize(width: width, height: height, depth: 1), threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
@@ -112,6 +113,42 @@ struct RollBaselineTests {
         #expect(r.base.w == 0 && r.low.w == 0 && r.offset.w == 0)
     }
 
+    @Test func `One validated border calibrates multiple scenes with different capture gains`() async throws {
+        let ctx=try context(), root=FileManager.default.temporaryDirectory.appendingPathComponent("RollReference-\(UUID())")
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:root) }
+        let gains:[Float]=[0.15,0.35,0.8]
+        for i in gains.indices {
+            let input=try await fixture(ctx,mode:i==0 ? 0:5,gain:gains[i])
+            let cg=try #require(NegativeImageIO.boundaryImage(input.texture,context:ctx.linearCIContext))
+            let dest=try #require(CGImageDestinationCreateWithURL(root.appendingPathComponent("frame\(i).tiff") as CFURL,UTType.tiff.identifier as CFString,1,nil))
+            CGImageDestinationAddImage(dest,cg,nil);try #require(CGImageDestinationFinalize(dest))
+        }
+        var source=NodeData(type:.folderInput,position:.zero);source.imageURL=root
+        let develop=NodeData(type:.negativeDevelop,position:.zero), preview=NodeData(type:.preview,position:.zero)
+        let graph=NodeGraph(nodes:[source,develop,preview],connections:[
+            Connection(fromNodeId:source.id,fromOutput:"Image",toNodeId:develop.id,toInput:"Input"),
+            Connection(fromNodeId:develop.id,fromOutput:"Output",toNodeId:preview.id,toInput:"Input")])
+        let kit=RawrKit(), roll=try #require(await kit.measureRoll(graph,nodeID:develop.id))
+        #expect(roll.frames.filter(\.included).count==3)
+        #expect(roll.calibration["autoBalance"]==1)
+        var pixels=[[SIMD4<Float>]]()
+        for i in gains.indices {
+            let input=try NegativeImageIO.load(url:root.appendingPathComponent("frame\(i).tiff"),context:ctx)
+            var node=develop;node.rollBaseline=roll
+            let output=try #require(await NegativeDevelopProcessor(context:ctx).process(inputs:["Input":input],node:node,context:ctx)?["Output"])
+            pixels.append(try await read(output.texture,context:ctx))
+        }
+        for x in stride(from:40,to:210,by:15) {
+            let reference=pixels[0][128*256+x]
+            for frame in pixels {
+                let p=frame[128*256+x]
+                #expect(abs(p.x-p.y)<0.005 && abs(p.z-p.y)<0.005)
+                #expect(abs(p.y-reference.y)<0.005)
+            }
+        }
+    }
+
     @Test func `Frame overrides trims opt out and version survive flow save load`() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("RollOverrides-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -147,6 +184,8 @@ struct RollBaselineTests {
         roll.version = 99
         #expect(roll.parameters(for: url, node: node.parameters) == nil)
         roll.version = 1
+        roll.frames[0].optOut = false
+        #expect(roll.parameters(for:url,node:node.parameters)?["rollRelativeDensity"]==0)
         try Data([1,2]).write(to: url)
         #expect(roll.parameters(for: url, node: node.parameters) == nil)
         let old = Data("{\"nodes\":[],\"connections\":[]}".utf8)
@@ -175,6 +214,15 @@ struct RollBaselineTests {
         let kit = RawrKit()
         let roll = try #require(await kit.measureRoll(graph, nodeID: develop.id))
         #expect(roll.frames.count == 5 && roll.frames.allSatisfy(\.included))
+        let dust = NodeData(type:.dustRemoval,position:.zero), crop = NodeData(type:.autoCrop,position:.zero)
+        let throughCleanup = NodeGraph(nodes:[source,dust,crop,develop,preview],connections:[
+            Connection(fromNodeId:source.id,fromOutput:"Image",toNodeId:dust.id,toInput:"Input"),
+            Connection(fromNodeId:dust.id,fromOutput:"Output",toNodeId:crop.id,toInput:"Input"),
+            Connection(fromNodeId:crop.id,fromOutput:"Output",toNodeId:develop.id,toInput:"Input"),
+            Connection(fromNodeId:develop.id,fromOutput:"Output",toNodeId:preview.id,toInput:"Input")])
+        #expect(RawrKit.rollMeasurementPath(throughCleanup,nodeID:develop.id)?.map(\.id)==[source.id,dust.id,crop.id])
+        let cleanedRoll = try #require(await kit.measureRoll(throughCleanup,nodeID:develop.id))
+        #expect(cleanedRoll.frames.count==5 && cleanedRoll.frames.allSatisfy(\.included))
         graph.nodes[1].rollBaseline = roll
         for frame in roll.frames {
             #expect(roll.parameters(for: inputs.appendingPathComponent(frame.name), node: develop.parameters) != nil)

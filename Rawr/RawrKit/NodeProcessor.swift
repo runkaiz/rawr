@@ -34,6 +34,7 @@ public struct ImageMetadata {
     public var orientation: UInt32 = 1
     public var domain: ImageDomain = .unspecified
     var cropFilmBase: SIMD4<Float>?
+    var sourceWasDownscaled = false
     var sourceURL: URL?
     var legacyFloatOutput = false
     var dustMaskLease: TextureLease?

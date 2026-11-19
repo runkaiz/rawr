@@ -16,12 +16,12 @@ extension RawrKit {
     @MainActor
     private func measureRollNow(_ graph: NodeGraph, nodeID: UUID) async -> RollBaseline? {
         guard graph.validationError() == nil,
-              graph.nodes.contains(where: { $0.id == nodeID && $0.type == .negativeDevelop }),
-              let edge = graph.connections.first(where: { $0.toNodeId == nodeID && $0.toInput == "Input" }),
-              let source = graph.nodes.first(where: { $0.id == edge.fromNodeId && $0.type == .folderInput }),
+              let develop = graph.nodes.first(where: { $0.id == nodeID && $0.type == .negativeDevelop }),
+              let path = Self.rollMeasurementPath(graph, nodeID: nodeID),
+              let source = path.first,
               let folder = source.imageBookmark.flatMap({ self.resolveBookmark($0) }) ?? source.imageURL,
               let context = processingContext else {
-            log("Roll measurement requires a direct Folder Input connection", level: .error)
+            log("Roll measurement requires Folder Input, optionally through Dust Removal and Auto Crop", level: .error)
             return nil
         }
         let access = folder.startAccessingSecurityScopedResource()
@@ -34,22 +34,70 @@ extension RawrKit {
         let meter = NegativeMetering(context: context)
         var summaries: [NegativeMeteringResult] = []
         var identities: [RollFrame] = []
-        let automatic: [String: Double] = ["autoBase": 1, "autoEndpoints": 1, "autoBalance": 1]
+        let parameters = develop.parameters
+        guard let manual = NegativeDevelopParameters(parameters) else { return nil }
+        let cropper = AutoCropProcessor(context:context)
+        let duster = DustRemovalProcessor(context:context)
         let started = Date()
-        // Stream one full-resolution texture at a time. Never retain a whole
-        // roll of images in unified memory; only 96-byte summaries accumulate.
-        for url in urls {
-            do {
-                let identity = try RollFrame(url: url, included: false, densityShift: 0)
-                let input = try NegativeImageIO.load(url: url, context: context)
-                guard let output = await meter.analyze(input, parameters: automatic), identity.matches(url) else {
+        // Each pass streams one image. Optical reference and scene support are
+        // independent: a clear strip in one frame can calibrate the whole roll.
+        func measure(_ url: URL, reference: SIMD4<Float>? = nil) async throws -> NegativeMeteringResult {
+            var input = try NegativeImageIO.load(url:url,context:context)
+            for node in path.dropFirst() {
+                let processor: any NodeProcessor = node.type == .autoCrop ? cropper:duster
+                guard let output = await processor.process(inputs:["Input":input],node:node,context:context)?["Output"] else {
                     throw CocoaError(.fileReadUnknown)
                 }
-                summaries.append(output.result)
+                input = output
+            }
+            guard let output = await meter.analyze(input,parameters:parameters,baseOverride:reference) else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            var result = output.result
+            if parameters["autoEndpoints"] == 0 {
+                result.low = manual.low; result.low.w = 1
+                result.high = manual.high; result.high.w = 1
+            }
+            if parameters["autoBalance"] == 0 {
+                result.offset = manual.balance; result.offset.w = 1
+                result.slope = manual.slope
+            }
+            return result
+        }
+        for url in urls {
+            do {
+                let identity = try RollFrame(url:url,included:false,densityShift:0)
+                summaries.append(try await measure(url))
+                guard identity.matches(url) else { throw CocoaError(.fileReadUnknown) }
                 identities.append(identity)
             } catch {
-                log("Roll measurement failed for \(url.lastPathComponent): \(error.localizedDescription)", level: .error)
+                log("Roll measurement failed for \(url.lastPathComponent): \(error.localizedDescription)",level:.error)
                 return nil
+            }
+        }
+        let referenceCount = summaries.filter { $0.base.w >= 0.5 }.count
+        var captureDependentAxis = false
+        if parameters["autoBase"] == 1 {
+            guard let reference = await RollReduction.baseReference(summaries,context:context),reference.w >= 0.5 else {
+                log("Roll has no supported optical base reference; measure a clear-film strip or lock a trusted base",level:.warning)
+                return nil
+            }
+            log("Roll base: validated border references in \(referenceCount)/\(urls.count) frames; measuring all scenes in a common density coordinate")
+            let alreadyCommon = summaries.allSatisfy { r in
+                r.base.w >= 0.5 && (0..<3).allSatisfy { abs(r.base[$0]/reference[$0]-1)<0.005 }
+            }
+            captureDependentAxis = !alreadyCommon
+            if !alreadyCommon {
+                summaries.removeAll(keepingCapacity:true)
+                for (i,url) in urls.enumerated() {
+                    do {
+                        summaries.append(try await measure(url,reference:reference))
+                        guard identities[i].matches(url) else { throw CocoaError(.fileReadUnknown) }
+                    } catch {
+                        log("Roll scene measurement failed for \(url.lastPathComponent): \(error.localizedDescription)",level:.error)
+                        return nil
+                    }
+                }
             }
         }
         guard let reduction = await RollReduction.reduce(summaries, context: context),
@@ -70,9 +118,31 @@ extension RawrKit {
         }
         let r = reduction.statistics
         var calibration = NegativeDevelopParameters.defaults
-        for group in ["Base", "Endpoints", "Balance"] { calibration = r.locking(group, in: calibration) }
+        for group in ["Base", "Endpoints"] { calibration = r.locking(group, in: calibration) }
+        if r.offset.w >= 0.5 && (!captureDependentAxis || parameters["autoBalance"] == 0) {
+            calibration = r.locking("Balance",in:calibration)
+        } else {
+            calibration["autoBalance"] = 1
+            log("Roll: base and endpoints saved; per-frame balance retained for unsupported or capture-dependent shared axes",level:.warning)
+        }
         log("Roll: \(Int(r.quality.x))/\(urls.count) accepted, \(Date().timeIntervalSince(started)) seconds including decode")
         return RollBaseline(folder: folder, calibration: calibration,
-            confidence: min(r.base.w, r.low.w, r.offset.w), frames: identities)
+            confidence: min(r.base.w, r.low.w), frames: identities)
+    }
+
+    /// Only supported transmission-preserving nodes may precede development.
+    /// Graph validation handles cycles; visited also protects direct API calls.
+    static func rollMeasurementPath(_ graph: NodeGraph, nodeID: UUID) -> [NodeData]? {
+        var path = [NodeData](), current = nodeID, visited = Set<UUID>()
+        while visited.insert(current).inserted {
+            guard let edge = graph.connections.first(where:{ $0.toNodeId == current && $0.toInput == "Input" }),
+                  edge.fromOutput != "Mask",
+                  let node = graph.nodes.first(where:{ $0.id == edge.fromNodeId }) else { return nil }
+            path.append(node)
+            if node.type == .folderInput { return path.reversed() }
+            guard node.type == .dustRemoval || node.type == .autoCrop else { return nil }
+            current = node.id
+        }
+        return nil
     }
 }

@@ -36,7 +36,8 @@ public final class NegativeDevelopProcessor: MetalNodeProcessor {
         }
         await MainActor.run { context.logger?.negativeStatistics[node.id] = statistics.result }
         var automatic = SIMD4<UInt32>(values["autoBase"] == 1 ? 1 : 0,
-            values["autoEndpoints"] == 1 ? 1 : 0, values["autoBalance"] == 1 ? 1 : 0, 0)
+            values["autoEndpoints"] == 1 ? 1 : 0, values["autoBalance"] == 1 ? 1 : 0,
+            values["rollRelativeDensity"] == 1 ? 1 : 0)
         guard let outputLease = context.resources.texture(format: .rgba32Float,
             width: input.texture.width, height: input.texture.height),
               let command = context.commandQueue.makeCommandBuffer(),

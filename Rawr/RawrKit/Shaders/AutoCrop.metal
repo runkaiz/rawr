@@ -58,9 +58,12 @@ kernel void autoCropSelect(device const float *profiles [[buffer(0)]],
     for (uint axis=0; axis<2; ++axis) {
         device const float *p = profiles+(angle*2+axis)*cropBins;
         float mean = 0;
-        for (uint j=16;j<240;++j) mean += p[j]/224.0f;
+        for (uint j=1;j<255;++j) mean += p[j]/254.0f;
         for (uint side=0;side<2;++side) {
-            uint start = side == 0 ? 16 : 139, end = side == 0 ? 117 : 240;
+            // Scanner frames can almost fill the canvas. Search their hairline
+            // margins as well as camera borders, while excluding central scene
+            // rectangles from the automatic exposure-boundary search.
+            uint start = side == 0 ? 1 : 166, end = side == 0 ? 90 : 255;
             float maximum = 0;
             for (uint j=start;j<end;++j) maximum=max(maximum,p[j]);
             // Among substantial local peaks, choose the innermost edge of the
@@ -81,6 +84,7 @@ kernel void autoCropSelect(device const float *profiles [[buffer(0)]],
     float ratio = min(min(ratios.x,ratios.y),min(ratios.z,ratios.w));
     float confidence = clamp(minimum/0.20f,0.0f,1.0f)*clamp((ratio-1.5f)/4.0f,0.0f,1.0f);
     float score = sqrt(max(0.0f,peaks.x*peaks.y))*sqrt(max(0.0f,peaks.z*peaks.w));
+    if((bounds.y-bounds.x)*(bounds.w-bounds.z)<0.12f) { confidence=0; score=0; }
     candidates[angle] = {bounds,float4(score,confidence,minimum,ratio)};
 }
 

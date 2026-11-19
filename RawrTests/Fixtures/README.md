@@ -4,6 +4,15 @@ It contains a 16×12 RGB thumbnail at IFD0 and a 256×256 RGGB sensor SubIFD.
 No photograph, camera data, NegPy code, or third-party fixture is included.
 The generator and fixture are dedicated to the public domain under CC0-1.0.
 
+`RealScanRegressionTests.swift` also generates four-plane LinearRaw DNGs at
+runtime, with explicit reduction/colour matrices, variable fourth-plane samples,
+black levels, rotation, and malformed-storage cases. Its oversized fixture
+extends this synthetic sensor to 129 MP with generated gradient rows; decoding
+must allocate a bounded working preview and reject a full-resolution request.
+No large binary fixture or photograph is checked in. Scanner-like narrow clear
+strips, black holders, textured edges and grain are generated in
+`NegativeMeteringTests.swift`.
+
 The sensor is at least 256 pixels on each edge because the Apple decoder rejects
 smaller synthetic sensor images. The decoder-identity guard rejects that fallback.
 

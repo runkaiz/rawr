@@ -29,7 +29,11 @@ kernel void negativeDevelop(texture2d<float, access::read> input [[texture(0)]],
         // Invalid/negative samples are treated as zero; +Inf is saturated at base.
         sample = isnan(sample) || sample < 0.0f ? 0.0f : sample;
         float base = automatic.x ? meter.base[c] : p.base[c];
-        float transmission = clamp(sample / base, 1e-6f, 1.0f);
+        if (isinf(sample)) sample = base;
+        // Roll calibration is a common reference coordinate. Capture exposure
+        // may place a frame above that reference; retain negative density until
+        // alignment and print normalization instead of clipping its highlights.
+        float transmission = clamp(sample / base, 1e-6f, automatic.w ? 1e6f : 1.0f);
         float density = -precise::log10(transmission);
         float offset = automatic.z ? meter.offset[c] : p.balance[c];
         float slope = automatic.z ? meter.slope[c] : p.slope[c];

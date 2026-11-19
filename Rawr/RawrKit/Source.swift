@@ -168,7 +168,7 @@ public class RawrKit: ObservableObject {
         }
 
         do {
-            let image = try ImageDecoder(context: ciContext).decode(url: url)
+            let image = try ImageDecoder(context: ciContext).decode(url: url, allowDownscale: !isFullResolutionMode)
             await MainActor.run {
                 self.currentImage = image
                 self.previewImage = self.createPreview(from: image)
@@ -366,19 +366,21 @@ public class RawrKit: ObservableObject {
         log("Graph cache cleared")
     }
 
-    /// Full-size float decode and GPU upload; no CPU image is made between stages.
+    /// Native float decode or an explicitly bounded large-RAW working preview.
+    /// Full-resolution requests cannot reuse a downscaled source cache entry.
     internal func loadNegativeSource(at url: URL, context: ProcessingContext) -> ImageData? {
         let start = ProcessInfo.processInfo.systemUptime
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
             let key = try SourceIdentity(url)
-            if let cached = negativeSourceCache, cached.key == key {
+            if let cached = negativeSourceCache, cached.key == key,
+               !isFullResolutionMode || !cached.image.metadata.sourceWasDownscaled {
                 negativeSourceTexture = cached.image.texture
                 context.trace.record("source-cache", since: start, device: context.device, cached: true)
                 return cached.image
             }
-            let image = try NegativeImageIO.load(url: url, context: context)
+            let image = try NegativeImageIO.load(url: url, context: context, allowDownscale: !isFullResolutionMode)
             guard try SourceIdentity(url) == key else { return nil }
             negativeSourceCache = (key, image)
             negativeSourceTexture = image.texture
@@ -437,7 +439,7 @@ public class RawrKit: ObservableObject {
     /// The caller holds file or parent-folder security access.
     internal func decodeSourceImage(at url: URL) -> CGImage? {
         do {
-            let image = try ImageDecoder(context: ciContext).decode(url: url)
+            let image = try ImageDecoder(context: ciContext).decode(url: url, allowDownscale: !isFullResolutionMode)
             return isFullResolutionMode ? image : scaleToPreviewResolution(image)
         } catch {
             log("Failed to decode \(url.lastPathComponent): \(error.localizedDescription)", level: .error)
